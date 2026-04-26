@@ -45,6 +45,10 @@ dependencies:
   intl: ^0.20.2
   shared_preferences: ^2.5.5
   flutter_dotenv: ^6.0.1
+  web_socket_channel: ^3.0.1
+  just_audio: ^0.9.40
+  google_fonts: ^6.2.1
+  url_launcher: ^6.3.1
 
 dev_dependencies:
   flutter_test:
@@ -67,6 +71,10 @@ flutter:
   # included with your application, so that you can use the icons in
   # the material Icons class.
   uses-material-design: true
+
+  assets:
+    - .env
+    - assets/landing/
 
   # To add assets to your application, add an assets section, like this:
   # assets:
