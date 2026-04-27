@@ -19,17 +19,6 @@ class HomePage extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final currentUser = ref.watch(currentUserProvider);
-    final profileValue = ref.watch(currentProfileProvider);
-    final meetingsValue = ref.watch(meetingsListProvider);
-    final actionItemsValue = ref.watch(actionItemsProvider);
-    final subscriptionValue = ref.watch(subscriptionProvider);
-
-    final displayName = _displayName(
-      fullName: profileValue.whenOrNull(data: (profile) => profile?.fullName),
-      email: currentUser?.email,
-    );
-
     return Scaffold(
       appBar: AppBar(title: const Text('WrapUp AI')),
       body: SafeArea(
@@ -44,36 +33,15 @@ class HomePage extends ConsumerWidget {
               AppSpacing.xl,
             ),
             children: [
-              GreetingHeader(
-                displayName: displayName,
-                subscription: subscriptionValue,
-              ),
+              const _GreetingSection(),
               const SizedBox(height: AppSpacing.lg),
-              StatGrid(
-                meetings:
-                    meetingsValue.whenOrNull(data: (meetings) => meetings) ??
-                    const [],
-                actionItems:
-                    actionItemsValue.whenOrNull(data: (items) => items) ??
-                    const [],
-              ),
+              const _StatsSection(),
               const SizedBox(height: AppSpacing.lg),
-              RecentMeetingsSection(
-                meetings: meetingsValue,
-                onRetry: () => ref.invalidate(meetingsListProvider),
-                onViewAll: () => context.go('/dashboard/meetings'),
-                onOpenMeeting: (meeting) {
-                  context.push('/dashboard/meetings/${meeting.id}');
-                },
-              ),
+              const _RecentMeetingsDashboardSection(),
               const SizedBox(height: AppSpacing.lg),
-              PendingTasksSection(
-                actionItems: actionItemsValue,
-                onRetry: () => ref.invalidate(actionItemsProvider),
-                onViewAll: () => context.go('/dashboard/action-items'),
-              ),
+              const _PendingTasksDashboardSection(),
               const SizedBox(height: AppSpacing.lg),
-              PlanStatusCard(subscription: subscriptionValue),
+              const _PlanStatusSection(),
             ],
           ),
         ),
@@ -94,6 +62,86 @@ class HomePage extends ConsumerWidget {
       _readSafely(() => ref.read(subscriptionProvider.future)),
       _readSafely(() => ref.read(currentProfileProvider.future)),
     ]);
+  }
+}
+
+class _GreetingSection extends ConsumerWidget {
+  const _GreetingSection();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final currentUser = ref.watch(currentUserProvider);
+    final profileValue = ref.watch(currentProfileProvider);
+    final subscriptionValue = ref.watch(subscriptionProvider);
+
+    final displayName = _displayName(
+      fullName: profileValue.whenOrNull(data: (profile) => profile?.fullName),
+      email: currentUser?.email,
+    );
+
+    return GreetingHeader(
+      displayName: displayName,
+      subscription: subscriptionValue,
+    );
+  }
+}
+
+class _StatsSection extends ConsumerWidget {
+  const _StatsSection();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final meetingsValue = ref.watch(meetingsListProvider);
+    final actionItemsValue = ref.watch(actionItemsProvider);
+
+    return StatGrid(
+      meetings:
+          meetingsValue.whenOrNull(data: (meetings) => meetings) ?? const [],
+      actionItems:
+          actionItemsValue.whenOrNull(data: (items) => items) ?? const [],
+    );
+  }
+}
+
+class _RecentMeetingsDashboardSection extends ConsumerWidget {
+  const _RecentMeetingsDashboardSection();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final meetingsValue = ref.watch(meetingsListProvider);
+
+    return RecentMeetingsSection(
+      meetings: meetingsValue,
+      onRetry: () => ref.invalidate(meetingsListProvider),
+      onViewAll: () => context.go('/dashboard/meetings'),
+      onOpenMeeting: (meeting) {
+        context.push('/dashboard/meetings/${meeting.id}');
+      },
+    );
+  }
+}
+
+class _PendingTasksDashboardSection extends ConsumerWidget {
+  const _PendingTasksDashboardSection();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final actionItemsValue = ref.watch(actionItemsProvider);
+
+    return PendingTasksSection(
+      actionItems: actionItemsValue,
+      onRetry: () => ref.invalidate(actionItemsProvider),
+      onViewAll: () => context.go('/dashboard/action-items'),
+    );
+  }
+}
+
+class _PlanStatusSection extends ConsumerWidget {
+  const _PlanStatusSection();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return PlanStatusCard(subscription: ref.watch(subscriptionProvider));
   }
 }
 

@@ -59,17 +59,16 @@ class StatGrid extends StatelessWidget {
     return LayoutBuilder(
       builder: (context, constraints) {
         final columns = constraints.maxWidth < 340 ? 1 : 2;
-        return GridView.builder(
-          itemCount: cards.length,
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: columns,
-            mainAxisSpacing: AppSpacing.md,
-            crossAxisSpacing: AppSpacing.md,
-            mainAxisExtent: 146,
-          ),
-          itemBuilder: (context, index) => cards[index],
+        final spacing = AppSpacing.md * (columns - 1);
+        final itemWidth = (constraints.maxWidth - spacing) / columns;
+
+        return Wrap(
+          spacing: AppSpacing.md,
+          runSpacing: AppSpacing.md,
+          children: [
+            for (final card in cards)
+              SizedBox(width: itemWidth, height: 146, child: card),
+          ],
         );
       },
     );
