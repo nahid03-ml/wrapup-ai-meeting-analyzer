@@ -21,9 +21,12 @@ class MeetingsRepository {
 
     final rows = await _client
         .from('meetings')
-        .select()
+        .select(
+          '*, sessions(id, meeting_id, transcript, summary, language_detected, created_at, analytics_data, processing_status)',
+        )
         .eq('is_deleted', false)
-        .order('created_at', ascending: false);
+        .order('created_at', ascending: false)
+        .order('created_at', referencedTable: 'sessions', ascending: true);
 
     return rows.map((row) => Meeting.fromMap(_asRow(row))).toList();
   }

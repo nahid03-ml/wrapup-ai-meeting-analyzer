@@ -5,6 +5,11 @@ import '../providers/dio_provider.dart';
 import 'backend_exception.dart';
 
 class BackendApi {
+  // TODO(phase 5+): replace Map<String, dynamic> return types with typed
+  // response classes such as ProcessSessionResponse, SessionStatusResponse,
+  // AskResponse, SuggestTimesResponse, CreateShareLinkResponse, and
+  // SharedMeetingResponse. Wrap incrementally as each endpoint is consumed
+  // by the UI instead of doing all response models at once.
   BackendApi(this._dio);
 
   final Dio _dio;

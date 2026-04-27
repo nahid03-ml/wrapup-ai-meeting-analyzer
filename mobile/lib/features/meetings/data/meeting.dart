@@ -1,3 +1,5 @@
+import 'session.dart';
+
 /// Mirrors a row from public.meetings.
 ///
 /// Column reference:
@@ -17,6 +19,7 @@ class Meeting {
     this.actualEndedAt,
     this.durationMinutes,
     this.source,
+    this.sessions = const [],
   });
 
   final String id;
@@ -30,6 +33,7 @@ class Meeting {
   final DateTime? actualEndedAt;
   final int? durationMinutes;
   final String? source;
+  final List<MeetingSession> sessions;
 
   factory Meeting.fromMap(Map<String, dynamic> map) => Meeting(
     id: map['id'] as String,
@@ -43,7 +47,12 @@ class Meeting {
     actualEndedAt: _parseDate(map['actual_ended_at']),
     durationMinutes: _parseInt(map['duration_minutes']),
     source: map['source'] as String?,
+    sessions: _parseSessions(map['sessions']),
   );
+
+  MeetingSession? get latestSession => sessions.isEmpty ? null : sessions.last;
+
+  bool get hasPendingSession => sessions.any((session) => session.isPending);
 
   /// Partial-update payload. Mirrors the website's TablesUpdate<'meetings'>
   /// usage in src/hooks/useMeetings.ts:77.
@@ -90,4 +99,24 @@ int? _parseInt(dynamic value) {
   if (value is int) return value;
   if (value is num) return value.toInt();
   return null;
+}
+
+List<MeetingSession> _parseSessions(dynamic value) {
+  if (value is! List) return const <MeetingSession>[];
+
+  final sessions = <MeetingSession>[];
+  for (final item in value) {
+    if (item is! Map) continue;
+    try {
+      sessions.add(MeetingSession.fromMap(_asStringKeyedMap(item)));
+    } catch (_) {
+      continue;
+    }
+  }
+  sessions.sort((a, b) => a.createdAt.compareTo(b.createdAt));
+  return List.unmodifiable(sessions);
+}
+
+Map<String, dynamic> _asStringKeyedMap(Map<dynamic, dynamic> value) {
+  return value.map((key, mapValue) => MapEntry(key.toString(), mapValue));
 }
