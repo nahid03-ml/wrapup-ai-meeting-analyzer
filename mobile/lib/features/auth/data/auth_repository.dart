@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../../core/api/edge_functions_api.dart';
 import '../../../core/providers/supabase_provider.dart';
 import 'auth_exceptions.dart';
 
@@ -12,8 +13,10 @@ import 'auth_exceptions.dart';
 const String kMobileOAuthRedirect = 'io.wrapupai.app://login-callback';
 
 class AuthRepository {
-  AuthRepository(this._client);
+  AuthRepository(this._client, this._edgeFunctionsApi);
+
   final SupabaseClient _client;
+  final EdgeFunctionsApi _edgeFunctionsApi;
 
   /// Email + password sign up. Backend trigger creates a profiles row.
   /// Mirrors src/lib/auth.ts:13-23 on the website.
@@ -104,17 +107,7 @@ class AuthRepository {
   /// Mirrors the website's `check-email-exists` edge function call.
   Future<bool> emailExists(String email) async {
     try {
-      final response = await _client.functions.invoke(
-        'check-email-exists',
-        body: {'email': email},
-      );
-      final data = response.data;
-      if (data is Map && data['exists'] is bool) {
-        return data['exists'] as bool;
-      }
-      return false;
-    } on SocketException {
-      throw const NetworkFailure();
+      return await _edgeFunctionsApi.checkEmailExists(email: email);
     } catch (_) {
       // If the function is unavailable, do NOT block signup — let the
       // server decide. The signUp call itself will reject duplicates.
@@ -158,5 +151,6 @@ class AuthRepository {
 
 final authRepositoryProvider = Provider<AuthRepository>((ref) {
   final client = ref.watch(supabaseClientProvider);
-  return AuthRepository(client);
+  final edgeFunctionsApi = ref.watch(edgeFunctionsApiProvider);
+  return AuthRepository(client, edgeFunctionsApi);
 });
