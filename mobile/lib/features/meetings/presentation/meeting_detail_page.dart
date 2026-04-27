@@ -14,6 +14,7 @@ import 'widgets/tabs/analytics_tab.dart';
 import 'widgets/tabs/ask_ai_tab.dart';
 import 'widgets/tabs/meeting_action_items_tab.dart';
 import 'widgets/tabs/notes_tab.dart';
+import 'widgets/tabs/summary_tab.dart';
 import 'widgets/tabs/transcript_tab.dart';
 
 class MeetingDetailPage extends ConsumerWidget {
@@ -101,7 +102,7 @@ class _MeetingDetailBody extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return DefaultTabController(
-      length: 5,
+      length: 6,
       child: Column(
         children: [
           Padding(
@@ -127,6 +128,7 @@ class _MeetingDetailBody extends StatelessWidget {
             tabAlignment: TabAlignment.start,
             tabs: [
               Tab(text: 'Transcript', icon: Icon(Icons.article_outlined)),
+              Tab(text: 'Summary', icon: Icon(Icons.summarize_outlined)),
               Tab(text: 'Actions', icon: Icon(Icons.task_alt_outlined)),
               Tab(text: 'Analytics', icon: Icon(Icons.bar_chart_outlined)),
               Tab(text: 'Ask AI', icon: Icon(Icons.smart_toy_outlined)),
@@ -137,6 +139,7 @@ class _MeetingDetailBody extends StatelessWidget {
             child: TabBarView(
               children: [
                 TranscriptTab(meetingId: meetingId),
+                SummaryTab(meetingId: meetingId),
                 MeetingActionItemsTab(meetingId: meetingId),
                 AnalyticsTab(meetingId: meetingId),
                 AskAiTab(meetingId: meetingId),
