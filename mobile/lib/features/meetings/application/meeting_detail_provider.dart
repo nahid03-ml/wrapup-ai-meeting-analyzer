@@ -21,8 +21,8 @@ final meetingProvider = FutureProvider.autoDispose.family<Meeting, String>((
     throw StateError('A signed-in user is required.');
   }
 
+  ref.watch(_meetingDetailRealtimeProvider(meetingId));
   final repository = ref.watch(meetingDetailRepositoryProvider);
-  _listenForDetailChanges(ref, repository, meetingId);
   return repository.fetchMeeting(meetingId);
 });
 
@@ -33,8 +33,8 @@ final sessionsProvider = FutureProvider.autoDispose
         return const <MeetingSession>[];
       }
 
+      ref.watch(_meetingDetailRealtimeProvider(meetingId));
       final repository = ref.watch(meetingDetailRepositoryProvider);
-      _listenForDetailChanges(ref, repository, meetingId);
       final sessions = await repository.fetchSessions(meetingId);
       if (sessions.any((session) => session.isPending)) {
         final timer = Timer(kMeetingDetailPollInterval, ref.invalidateSelf);
@@ -52,8 +52,8 @@ final notesProvider = FutureProvider.autoDispose.family<List<Note>, String>((
     return const <Note>[];
   }
 
+  ref.watch(_meetingDetailRealtimeProvider(meetingId));
   final repository = ref.watch(meetingDetailRepositoryProvider);
-  _listenForDetailChanges(ref, repository, meetingId);
   return repository.fetchNotes(meetingId);
 });
 
@@ -64,8 +64,8 @@ final chatsProvider = FutureProvider.autoDispose
         return const <MeetingAiChat>[];
       }
 
+      ref.watch(_meetingDetailRealtimeProvider(meetingId));
       final repository = ref.watch(meetingDetailRepositoryProvider);
-      _listenForDetailChanges(ref, repository, meetingId);
       return repository.fetchChats(meetingId);
     });
 
@@ -76,20 +76,21 @@ final participantsProvider = FutureProvider.autoDispose
         return const <Participant>[];
       }
 
+      ref.watch(_meetingDetailRealtimeProvider(meetingId));
       final repository = ref.watch(meetingDetailRepositoryProvider);
-      _listenForDetailChanges(ref, repository, meetingId);
       return repository.fetchParticipants(meetingId);
     });
 
-void _listenForDetailChanges(
-  Ref ref,
-  MeetingDetailRepository repository,
-  String meetingId,
-) {
-  final subscription = repository.subscribeMeetingDetail(meetingId).listen((_) {
-    ref.invalidateSelf();
-  });
-  ref.onDispose(() {
-    unawaited(subscription.cancel());
-  });
-}
+final _meetingDetailRealtimeProvider = StreamProvider.autoDispose
+    .family<int, String>((ref, meetingId) async* {
+      final user = ref.watch(currentUserProvider);
+      if (user == null) {
+        return;
+      }
+
+      final repository = ref.watch(meetingDetailRepositoryProvider);
+      var tick = 0;
+      await for (final _ in repository.subscribeMeetingDetail(meetingId)) {
+        yield ++tick;
+      }
+    });

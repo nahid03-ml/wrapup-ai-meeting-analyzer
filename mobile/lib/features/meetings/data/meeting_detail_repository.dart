@@ -104,21 +104,25 @@ class MeetingDetailRepository {
   }
 
   Future<MeetingAiChat> insertAiChat({
-    required String sessionId,
+    String? sessionId,
     required String meetingId,
     required String userId,
     required String question,
     required String answer,
   }) async {
+    final payload = <String, dynamic>{
+      'meeting_id': meetingId,
+      'user_id': userId,
+      'question': question,
+      'answer': answer,
+    };
+    if (sessionId != null && sessionId.trim().isNotEmpty) {
+      payload['session_id'] = sessionId;
+    }
+
     final row = await _client
         .from('meeting_ai_chats')
-        .insert({
-          'session_id': sessionId,
-          'meeting_id': meetingId,
-          'user_id': userId,
-          'question': question,
-          'answer': answer,
-        })
+        .insert(payload)
         .select()
         .single();
     return MeetingAiChat.fromMap(_asRow(row));
