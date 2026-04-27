@@ -31,9 +31,7 @@ class PendingTasksSection extends StatelessWidget {
         error: (error, _) =>
             ErrorView(message: error.toString(), onRetry: onRetry),
         data: (items) {
-          final pending = items.where((item) => !item.isCompleted).toList()
-            ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
-          final visible = pending.take(3).toList();
+          final visible = _latestPendingItems(items, 3);
 
           if (visible.isEmpty) {
             return const EmptyState(
@@ -56,6 +54,32 @@ class PendingTasksSection extends StatelessWidget {
       ),
     );
   }
+}
+
+List<ActionItem> _latestPendingItems(List<ActionItem> items, int limit) {
+  if (limit <= 0 || items.isEmpty) return const [];
+
+  final visible = <ActionItem>[];
+  for (final item in items) {
+    if (item.isCompleted) continue;
+
+    var inserted = false;
+    for (var index = 0; index < visible.length; index++) {
+      if (item.createdAt.isAfter(visible[index].createdAt)) {
+        visible.insert(index, item);
+        inserted = true;
+        break;
+      }
+    }
+    if (!inserted && visible.length < limit) {
+      visible.add(item);
+    }
+    if (visible.length > limit) {
+      visible.removeLast();
+    }
+  }
+
+  return visible;
 }
 
 class _TaskTile extends StatelessWidget {

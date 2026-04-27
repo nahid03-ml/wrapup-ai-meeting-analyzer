@@ -70,13 +70,13 @@ class _GreetingSection extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final currentUser = ref.watch(currentUserProvider);
+    final email = ref.watch(currentUserProvider.select((user) => user?.email));
     final profileValue = ref.watch(currentProfileProvider);
     final subscriptionValue = ref.watch(subscriptionProvider);
 
     final displayName = _displayName(
       fullName: profileValue.whenOrNull(data: (profile) => profile?.fullName),
-      email: currentUser?.email,
+      email: email,
     );
 
     return GreetingHeader(
@@ -93,12 +93,17 @@ class _StatsSection extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final meetingsValue = ref.watch(meetingsListProvider);
     final actionItemsValue = ref.watch(actionItemsProvider);
+    final meetings =
+        meetingsValue.whenOrNull(data: (meetings) => meetings) ?? const [];
+    final actionItems =
+        actionItemsValue.whenOrNull(data: (items) => items) ?? const [];
 
     return StatGrid(
-      meetings:
-          meetingsValue.whenOrNull(data: (meetings) => meetings) ?? const [],
-      actionItems:
-          actionItemsValue.whenOrNull(data: (items) => items) ?? const [],
+      meetingsAnalyzed: meetings.length,
+      pendingActionItems: actionItems.where((item) => !item.isCompleted).length,
+      meetingsThisWeek: meetings
+          .where((meeting) => _isInCurrentWeek(meeting.createdAt))
+          .length,
     );
   }
 }
@@ -164,4 +169,15 @@ String _displayName({String? fullName, String? email}) {
   }
 
   return 'there';
+}
+
+bool _isInCurrentWeek(DateTime value) {
+  final local = value.toLocal();
+  final now = DateTime.now();
+  final today = DateTime(now.year, now.month, now.day);
+  final monday = today.subtract(
+    Duration(days: today.weekday - DateTime.monday),
+  );
+  final nextMonday = monday.add(const Duration(days: 7));
+  return !local.isBefore(monday) && local.isBefore(nextMonday);
 }

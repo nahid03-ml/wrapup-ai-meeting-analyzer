@@ -34,9 +34,7 @@ class RecentMeetingsSection extends StatelessWidget {
         error: (error, _) =>
             ErrorView(message: error.toString(), onRetry: onRetry),
         data: (meetings) {
-          final recent = [...meetings]
-            ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
-          final visible = recent.take(3).toList();
+          final visible = _latestMeetings(meetings, 3);
 
           if (visible.isEmpty) {
             return const EmptyState(
@@ -64,6 +62,30 @@ class RecentMeetingsSection extends StatelessWidget {
       ),
     );
   }
+}
+
+List<Meeting> _latestMeetings(List<Meeting> meetings, int limit) {
+  if (limit <= 0 || meetings.isEmpty) return const [];
+
+  final visible = <Meeting>[];
+  for (final meeting in meetings) {
+    var inserted = false;
+    for (var index = 0; index < visible.length; index++) {
+      if (meeting.createdAt.isAfter(visible[index].createdAt)) {
+        visible.insert(index, meeting);
+        inserted = true;
+        break;
+      }
+    }
+    if (!inserted && visible.length < limit) {
+      visible.add(meeting);
+    }
+    if (visible.length > limit) {
+      visible.removeLast();
+    }
+  }
+
+  return visible;
 }
 
 class _SectionShell extends StatelessWidget {
