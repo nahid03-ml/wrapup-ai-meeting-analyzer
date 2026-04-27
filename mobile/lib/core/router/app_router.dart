@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../features/action_items/presentation/action_items_page.dart';
 import '../../features/auth/presentation/email_check_page.dart';
@@ -38,12 +39,15 @@ final _tasksNavigatorKey = GlobalKey<NavigatorState>();
 final _profileNavigatorKey = GlobalKey<NavigatorState>();
 
 final routerProvider = Provider<GoRouter>((ref) {
-  final authState = ref.watch(authStateProvider);
+  final refreshNotifier = _RouterRefreshNotifier(ref);
+  ref.onDispose(refreshNotifier.dispose);
 
   return GoRouter(
     navigatorKey: _rootNavigatorKey,
     initialLocation: AppRoutes.dashboardHome,
+    refreshListenable: refreshNotifier,
     redirect: (context, state) {
+      final authState = ref.read(authStateProvider);
       final session = ref.read(currentSessionProvider);
       final loggedIn = session != null;
       final location = state.uri.path;
@@ -105,6 +109,7 @@ final routerProvider = Provider<GoRouter>((ref) {
         branches: [
           StatefulShellBranch(
             navigatorKey: _homeNavigatorKey,
+            initialLocation: AppRoutes.dashboardHome,
             routes: [
               GoRoute(
                 path: AppRoutes.dashboardHome,
@@ -115,6 +120,7 @@ final routerProvider = Provider<GoRouter>((ref) {
           ),
           StatefulShellBranch(
             navigatorKey: _meetingsNavigatorKey,
+            initialLocation: AppRoutes.dashboardMeetings,
             routes: [
               GoRoute(
                 path: AppRoutes.dashboardMeetings,
@@ -125,6 +131,7 @@ final routerProvider = Provider<GoRouter>((ref) {
           ),
           StatefulShellBranch(
             navigatorKey: _newNavigatorKey,
+            initialLocation: AppRoutes.dashboardNew,
             routes: [
               GoRoute(
                 path: AppRoutes.dashboardNew,
@@ -135,6 +142,7 @@ final routerProvider = Provider<GoRouter>((ref) {
           ),
           StatefulShellBranch(
             navigatorKey: _tasksNavigatorKey,
+            initialLocation: AppRoutes.dashboardActionItems,
             routes: [
               GoRoute(
                 path: AppRoutes.dashboardActionItems,
@@ -145,6 +153,7 @@ final routerProvider = Provider<GoRouter>((ref) {
           ),
           StatefulShellBranch(
             navigatorKey: _profileNavigatorKey,
+            initialLocation: AppRoutes.dashboardProfile,
             routes: [
               GoRoute(
                 path: AppRoutes.dashboardProfile,
@@ -166,3 +175,20 @@ final routerProvider = Provider<GoRouter>((ref) {
     ),
   );
 });
+
+class _RouterRefreshNotifier extends ChangeNotifier {
+  _RouterRefreshNotifier(Ref ref) {
+    _authSubscription = ref.listen<AsyncValue<AuthState>>(
+      authStateProvider,
+      (previous, next) => notifyListeners(),
+    );
+  }
+
+  late final ProviderSubscription<AsyncValue<AuthState>> _authSubscription;
+
+  @override
+  void dispose() {
+    _authSubscription.close();
+    super.dispose();
+  }
+}
