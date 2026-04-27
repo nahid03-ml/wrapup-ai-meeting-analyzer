@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -25,8 +26,19 @@ class _SignupPageState extends ConsumerState<SignupPage> {
   final _emailCtl = TextEditingController();
   final _passwordCtl = TextEditingController();
   final _confirmCtl = TextEditingController();
+  final _nameFocus = FocusNode();
 
   String _password = '';
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _nameFocus.requestFocus();
+      SystemChannels.textInput.invokeMethod('TextInput.show');
+    });
+  }
 
   @override
   void dispose() {
@@ -34,6 +46,7 @@ class _SignupPageState extends ConsumerState<SignupPage> {
     _emailCtl.dispose();
     _passwordCtl.dispose();
     _confirmCtl.dispose();
+    _nameFocus.dispose();
     super.dispose();
   }
 
@@ -79,12 +92,12 @@ class _SignupPageState extends ConsumerState<SignupPage> {
           children: [
             AuthTextField(
               controller: _nameCtl,
+              focusNode: _nameFocus,
               label: 'Full name',
               hintText: 'Jane Doe',
               keyboardType: TextInputType.name,
               textInputAction: TextInputAction.next,
               autofillHints: const [AutofillHints.name],
-              autofocus: true,
               enabled: !isLoading,
               validator: (v) =>
                   (v == null || v.trim().isEmpty) ? 'Enter your name' : null,

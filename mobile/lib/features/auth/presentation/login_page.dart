@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -22,11 +23,23 @@ class _LoginPageState extends ConsumerState<LoginPage> {
   final _formKey = GlobalKey<FormState>();
   final _emailCtl = TextEditingController();
   final _passwordCtl = TextEditingController();
+  final _emailFocus = FocusNode();
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _emailFocus.requestFocus();
+      SystemChannels.textInput.invokeMethod('TextInput.show');
+    });
+  }
 
   @override
   void dispose() {
     _emailCtl.dispose();
     _passwordCtl.dispose();
+    _emailFocus.dispose();
     super.dispose();
   }
 
@@ -59,12 +72,12 @@ class _LoginPageState extends ConsumerState<LoginPage> {
           children: [
             AuthTextField(
               controller: _emailCtl,
+              focusNode: _emailFocus,
               label: 'Email',
               hintText: 'you@example.com',
               keyboardType: TextInputType.emailAddress,
               textInputAction: TextInputAction.next,
               autofillHints: const [AutofillHints.email],
-              autofocus: true,
               enabled: !isLoading,
               validator: (v) {
                 final value = (v ?? '').trim();

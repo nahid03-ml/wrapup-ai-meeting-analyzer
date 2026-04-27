@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -21,11 +22,23 @@ class ForgotPasswordPage extends ConsumerStatefulWidget {
 class _ForgotPasswordPageState extends ConsumerState<ForgotPasswordPage> {
   final _formKey = GlobalKey<FormState>();
   final _emailCtl = TextEditingController();
+  final _emailFocus = FocusNode();
   bool _sent = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _emailFocus.requestFocus();
+      SystemChannels.textInput.invokeMethod('TextInput.show');
+    });
+  }
 
   @override
   void dispose() {
     _emailCtl.dispose();
+    _emailFocus.dispose();
     super.dispose();
   }
 
@@ -83,12 +96,12 @@ class _ForgotPasswordPageState extends ConsumerState<ForgotPasswordPage> {
                 children: [
                   AuthTextField(
                     controller: _emailCtl,
+                    focusNode: _emailFocus,
                     label: 'Email',
                     hintText: 'you@example.com',
                     keyboardType: TextInputType.emailAddress,
                     textInputAction: TextInputAction.done,
                     autofillHints: const [AutofillHints.email],
-                    autofocus: true,
                     enabled: !isLoading,
                     onFieldSubmitted: (_) => _submit(),
                     validator: (v) {

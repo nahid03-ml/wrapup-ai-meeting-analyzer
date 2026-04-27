@@ -21,6 +21,7 @@ class AuthTextField extends StatefulWidget {
     this.onFieldSubmitted,
     this.enabled = true,
     this.autofocus = false,
+    this.focusNode,
   });
 
   final TextEditingController controller;
@@ -36,6 +37,7 @@ class AuthTextField extends StatefulWidget {
   final ValueChanged<String>? onFieldSubmitted;
   final bool enabled;
   final bool autofocus;
+  final FocusNode? focusNode;
 
   @override
   State<AuthTextField> createState() => _AuthTextFieldState();
@@ -69,6 +71,7 @@ class _AuthTextFieldState extends State<AuthTextField> {
           ),
           TextFormField(
             controller: widget.controller,
+            focusNode: widget.focusNode,
             obscureText: _obscured,
             enabled: widget.enabled,
             autofocus: widget.autofocus,
