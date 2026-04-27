@@ -2,12 +2,18 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../features/action_items/presentation/action_items_page.dart';
 import '../../features/auth/presentation/email_check_page.dart';
 import '../../features/auth/presentation/forgot_password_page.dart';
 import '../../features/auth/presentation/login_page.dart';
 import '../../features/auth/presentation/signup_page.dart';
-import '../../features/home/home_placeholder_page.dart';
+import '../../features/home/presentation/home_page.dart';
+import '../../features/meetings/presentation/meeting_detail_page.dart';
+import '../../features/meetings/presentation/meetings_list_page.dart';
+import '../../features/new_meeting/presentation/new_meeting_placeholder_page.dart';
+import '../../features/profile/presentation/profile_page.dart';
 import '../providers/supabase_provider.dart';
+import '../shell/app_shell.dart';
 
 class AppRoutes {
   AppRoutes._();
@@ -16,27 +22,43 @@ class AppRoutes {
   static const String forgotPassword = '/forgot-password';
   static const String emailCheck = '/check-email';
   static const String dashboard = '/dashboard';
+  static const String dashboardHome = '/dashboard/home';
+  static const String dashboardMeetings = '/dashboard/meetings';
+  static const String dashboardNew = '/dashboard/new';
+  static const String dashboardActionItems = '/dashboard/action-items';
+  static const String dashboardProfile = '/dashboard/profile';
+  static const String meetingDetail = '/dashboard/meetings/:id';
 }
+
+final _rootNavigatorKey = GlobalKey<NavigatorState>();
+final _homeNavigatorKey = GlobalKey<NavigatorState>();
+final _meetingsNavigatorKey = GlobalKey<NavigatorState>();
+final _newNavigatorKey = GlobalKey<NavigatorState>();
+final _tasksNavigatorKey = GlobalKey<NavigatorState>();
+final _profileNavigatorKey = GlobalKey<NavigatorState>();
 
 final routerProvider = Provider<GoRouter>((ref) {
   final authState = ref.watch(authStateProvider);
 
   return GoRouter(
-    initialLocation: AppRoutes.dashboard,
+    navigatorKey: _rootNavigatorKey,
+    initialLocation: AppRoutes.dashboardHome,
     redirect: (context, state) {
       final session = ref.read(currentSessionProvider);
       final loggedIn = session != null;
-      final loc = state.matchedLocation;
-      final isAuthRoute = loc == AppRoutes.login ||
-          loc == AppRoutes.signup ||
-          loc == AppRoutes.forgotPassword ||
-          loc == AppRoutes.emailCheck;
+      final location = state.uri.path;
+      final isAuthRoute =
+          location == AppRoutes.login ||
+          location == AppRoutes.signup ||
+          location == AppRoutes.forgotPassword ||
+          location == AppRoutes.emailCheck;
 
       if (authState.isLoading) return null;
 
       if (!loggedIn && !isAuthRoute) return AppRoutes.login;
-      if (loggedIn && isAuthRoute && loc != AppRoutes.emailCheck) {
-        return AppRoutes.dashboard;
+      if (loggedIn && isAuthRoute) return AppRoutes.dashboardHome;
+      if (loggedIn && location == AppRoutes.dashboard) {
+        return AppRoutes.dashboardHome;
       }
       return null;
     },
@@ -65,7 +87,73 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: AppRoutes.dashboard,
         name: 'dashboard',
-        builder: (context, state) => const HomePlaceholderPage(),
+        redirect: (context, state) => AppRoutes.dashboardHome,
+      ),
+      GoRoute(
+        parentNavigatorKey: _rootNavigatorKey,
+        path: AppRoutes.meetingDetail,
+        name: 'meeting-detail',
+        builder: (context, state) {
+          final meetingId = state.pathParameters['id']!;
+          return MeetingDetailPage(meetingId: meetingId);
+        },
+      ),
+      StatefulShellRoute.indexedStack(
+        builder: (context, state, navigationShell) {
+          return AppShell(navigationShell: navigationShell);
+        },
+        branches: [
+          StatefulShellBranch(
+            navigatorKey: _homeNavigatorKey,
+            routes: [
+              GoRoute(
+                path: AppRoutes.dashboardHome,
+                name: 'dashboard-home',
+                builder: (context, state) => const HomePage(),
+              ),
+            ],
+          ),
+          StatefulShellBranch(
+            navigatorKey: _meetingsNavigatorKey,
+            routes: [
+              GoRoute(
+                path: AppRoutes.dashboardMeetings,
+                name: 'dashboard-meetings',
+                builder: (context, state) => const MeetingsListPage(),
+              ),
+            ],
+          ),
+          StatefulShellBranch(
+            navigatorKey: _newNavigatorKey,
+            routes: [
+              GoRoute(
+                path: AppRoutes.dashboardNew,
+                name: 'dashboard-new',
+                builder: (context, state) => const NewMeetingPlaceholderPage(),
+              ),
+            ],
+          ),
+          StatefulShellBranch(
+            navigatorKey: _tasksNavigatorKey,
+            routes: [
+              GoRoute(
+                path: AppRoutes.dashboardActionItems,
+                name: 'dashboard-action-items',
+                builder: (context, state) => const ActionItemsPage(),
+              ),
+            ],
+          ),
+          StatefulShellBranch(
+            navigatorKey: _profileNavigatorKey,
+            routes: [
+              GoRoute(
+                path: AppRoutes.dashboardProfile,
+                name: 'dashboard-profile',
+                builder: (context, state) => const ProfilePage(),
+              ),
+            ],
+          ),
+        ],
       ),
     ],
     errorBuilder: (context, state) => Scaffold(
