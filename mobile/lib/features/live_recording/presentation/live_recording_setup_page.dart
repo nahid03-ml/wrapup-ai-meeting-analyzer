@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../data/capture_mode.dart';
+import 'widgets/android_capture_smoke_test_panel.dart';
 import 'widgets/capture_mode_card.dart';
 
 class LiveRecordingSetupPage extends StatelessWidget {
@@ -35,6 +36,10 @@ class LiveRecordingSetupPage extends StatelessWidget {
             const SizedBox(height: AppSpacing.lg),
             for (final mode in liveCaptureModes) ...[
               CaptureModeCard(mode: mode),
+              if (mode.id == CaptureModeId.androidDeviceAudioMicBeta) ...[
+                const SizedBox(height: AppSpacing.md),
+                const AndroidCaptureSmokeTestPanel(),
+              ],
               const SizedBox(height: AppSpacing.md),
             ],
           ],

@@ -33,7 +33,7 @@ class LiveCaptureService : Service() {
         } catch (error: SecurityException) {
             running = false
             LiveCaptureStatusBus.emitError(
-                "foreground_service_security",
+                "foregroundServiceSecurityError",
                 error.message ?: "Foreground service permission denied.",
             )
             stopSelf(startId)
@@ -41,7 +41,7 @@ class LiveCaptureService : Service() {
         } catch (error: RuntimeException) {
             running = false
             LiveCaptureStatusBus.emitError(
-                "foreground_service_failed",
+                "serviceFailed",
                 error.message ?: "Foreground service could not start.",
             )
             stopSelf(startId)
@@ -52,6 +52,7 @@ class LiveCaptureService : Service() {
     override fun onDestroy() {
         running = false
         stopForegroundCompat()
+        LiveCaptureStatusBus.emitStatus("serviceStopped")
         LiveCaptureStatusBus.emitStopped("serviceStopped")
         super.onDestroy()
     }

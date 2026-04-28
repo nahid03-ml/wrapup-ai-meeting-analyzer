@@ -105,6 +105,7 @@ class LiveCaptureChannels(
     private fun handleMethodCall(call: MethodCall, result: MethodChannel.Result) {
         when (call.method) {
             "isSupported" -> result.success(isSupported())
+            "getAndroidCaptureEnvironment" -> result.success(captureEnvironment())
             "requestProjection" -> requestProjection(result)
             "startCapture" -> startCapture(call.arguments, result)
             "stopCapture" -> stopCapture(result)
@@ -119,6 +120,10 @@ class LiveCaptureChannels(
 
     private fun requestProjection(result: MethodChannel.Result) {
         if (!isSupported()) {
+            LiveCaptureStatusBus.emitStatus(
+                "unsupportedAndroidVersion",
+                "Android device audio capture requires Android 10 or newer.",
+            )
             result.success(
                 mapOf(
                     "granted" to false,
@@ -169,8 +174,12 @@ class LiveCaptureChannels(
 
     private fun startCapture(arguments: Any?, result: MethodChannel.Result) {
         if (!isSupported()) {
+            LiveCaptureStatusBus.emitError(
+                "unsupportedAndroidVersion",
+                "Android device audio capture requires Android 10 or newer.",
+            )
             result.error(
-                "unsupported",
+                "unsupportedAndroidVersion",
                 "Android device audio capture requires Android 10 or newer.",
                 null,
             )
@@ -180,8 +189,12 @@ class LiveCaptureChannels(
         val resultCode = projectionResultCode
         val data = projectionData
         if (resultCode == null || data == null) {
+            LiveCaptureStatusBus.emitStatus(
+                "projectionRequired",
+                "MediaProjection permission must be granted before starting capture.",
+            )
             result.error(
-                "projection_required",
+                "projectionRequired",
                 "MediaProjection permission must be granted before starting capture.",
                 null,
             )
@@ -203,21 +216,21 @@ class LiveCaptureChannels(
             result.success(null)
         } catch (error: SecurityException) {
             LiveCaptureStatusBus.emitError(
-                "foreground_service_security",
+                "foregroundServiceSecurityError",
                 error.message ?: "Foreground service permission denied.",
             )
             result.error(
-                "foreground_service_security",
+                "foregroundServiceSecurityError",
                 error.message ?: "Foreground service permission denied.",
                 null,
             )
         } catch (error: RuntimeException) {
             LiveCaptureStatusBus.emitError(
-                "foreground_service_failed",
+                "serviceFailed",
                 error.message ?: "Foreground service could not start.",
             )
             result.error(
-                "foreground_service_failed",
+                "serviceFailed",
                 error.message ?: "Foreground service could not start.",
                 null,
             )
@@ -247,6 +260,21 @@ class LiveCaptureChannels(
 
     private fun isSupported(): Boolean {
         return Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && projectionManager != null
+    }
+
+    private fun captureEnvironment(): Map<String, Any> {
+        val sdkInt = Build.VERSION.SDK_INT
+        val supported = isSupported()
+        return mapOf(
+            "sdkInt" to sdkInt,
+            "isAndroid10Plus" to (sdkInt >= Build.VERSION_CODES.Q),
+            "isAndroid13Plus" to (sdkInt >= Build.VERSION_CODES.TIRAMISU),
+            "isAndroid14Plus" to (sdkInt >= 34),
+            "isSupported" to supported,
+            "requiresNotificationRuntimePermission" to (sdkInt >= Build.VERSION_CODES.TIRAMISU),
+            "requiresForegroundServiceTypes" to (sdkInt >= 34),
+            "supportsDeviceAudioCapture" to supported,
+        )
     }
 
     companion object {
