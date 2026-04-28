@@ -9,6 +9,7 @@ import '../../features/auth/presentation/forgot_password_page.dart';
 import '../../features/auth/presentation/login_page.dart';
 import '../../features/auth/presentation/signup_page.dart';
 import '../../features/home/presentation/home_page.dart';
+import '../../features/live_recording/presentation/live_recording_setup_page.dart';
 import '../../features/meetings/presentation/meeting_detail_page.dart';
 import '../../features/meetings/presentation/meetings_list_page.dart';
 import '../../features/new_meeting/presentation/new_meeting_page.dart';
@@ -26,6 +27,7 @@ class AppRoutes {
   static const String dashboardHome = '/dashboard/home';
   static const String dashboardMeetings = '/dashboard/meetings';
   static const String dashboardNew = '/dashboard/new';
+  static const String dashboardNewLive = '/dashboard/new/live';
   static const String dashboardActionItems = '/dashboard/action-items';
   static const String dashboardProfile = '/dashboard/profile';
   static const String meetingDetail = '/dashboard/meetings/:id';
@@ -137,6 +139,11 @@ final routerProvider = Provider<GoRouter>((ref) {
                 path: AppRoutes.dashboardNew,
                 name: 'dashboard-new',
                 builder: (context, state) => const NewMeetingPage(),
+              ),
+              GoRoute(
+                path: AppRoutes.dashboardNewLive,
+                name: 'dashboard-new-live',
+                builder: (context, state) => const LiveRecordingSetupPage(),
               ),
             ],
           ),

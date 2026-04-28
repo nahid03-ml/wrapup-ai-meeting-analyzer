@@ -12,7 +12,6 @@ import '../application/new_meeting_controller.dart';
 import '../application/upload_limits_provider.dart';
 import '../data/upload_progress.dart';
 import 'widgets/file_picker_button.dart';
-import 'widgets/instant_meeting_disabled_card.dart';
 import 'widgets/language_picker_field.dart';
 import 'widgets/new_meeting_choice_card.dart';
 import 'widgets/plan_limit_banner.dart';
@@ -99,7 +98,7 @@ class _NewMeetingPageState extends ConsumerState<NewMeetingPage> {
             ),
             const SizedBox(height: AppSpacing.xs),
             Text(
-              'Upload audio or video now. Instant recording arrives next.',
+              'Upload audio or video now, or prepare live capture sources for Phase 6.',
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                 color: AppColors.textSecondary,
                 height: 1.35,
@@ -135,7 +134,17 @@ class _NewMeetingPageState extends ConsumerState<NewMeetingPage> {
                   : const Icon(Icons.chevron_right),
             ),
             const SizedBox(height: AppSpacing.md),
-            const InstantMeetingDisabledCard(),
+            NewMeetingChoiceCard(
+              icon: Icons.graphic_eq_outlined,
+              title: 'Live capture',
+              subtitle:
+                  'Choose desktop system audio, Android beta, or room audio fallback.',
+              enabled: !isWorking,
+              onTap: !isWorking
+                  ? () => context.go(AppRoutes.dashboardNewLive)
+                  : null,
+              trailing: const Icon(Icons.chevron_right),
+            ),
             const SizedBox(height: AppSpacing.lg),
             _SupportedFormatsText(),
             const SizedBox(height: AppSpacing.lg),
