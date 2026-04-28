@@ -1,0 +1,95 @@
+enum LiveCaptureEventType {
+  status('status'),
+  warning('warning'),
+  error('error'),
+  stopped('stopped'),
+  audioLevel('audioLevel'),
+  unknown('unknown');
+
+  const LiveCaptureEventType(this.wireValue);
+
+  final String wireValue;
+
+  static LiveCaptureEventType fromWireValue(String? value) {
+    for (final type in LiveCaptureEventType.values) {
+      if (type.wireValue == value) {
+        return type;
+      }
+    }
+    return LiveCaptureEventType.unknown;
+  }
+}
+
+class LiveCaptureEvent {
+  const LiveCaptureEvent({
+    required this.eventType,
+    required this.payload,
+    this.status,
+    this.message,
+    this.code,
+    this.level,
+  });
+
+  final LiveCaptureEventType eventType;
+  final Map<String, dynamic> payload;
+  final String? status;
+  final String? message;
+  final String? code;
+  final double? level;
+
+  String get type => eventType.wireValue;
+
+  factory LiveCaptureEvent.fromMap(Map<String, dynamic> map) {
+    final eventType = LiveCaptureEventType.fromWireValue(
+      map['type'] as String?,
+    );
+    return LiveCaptureEvent(
+      eventType: eventType,
+      payload: Map<String, dynamic>.unmodifiable(map),
+      status: _stringOrNull(map['status']),
+      message: _stringOrNull(map['message']),
+      code: _stringOrNull(map['code']),
+      level: _doubleOrNull(map['level']),
+    );
+  }
+
+  factory LiveCaptureEvent.unknown() {
+    return const LiveCaptureEvent(
+      eventType: LiveCaptureEventType.unknown,
+      payload: <String, dynamic>{'type': 'unknown'},
+    );
+  }
+}
+
+class LiveProjectionResult {
+  const LiveProjectionResult({
+    required this.granted,
+    this.message,
+  });
+
+  final bool granted;
+  final String? message;
+
+  factory LiveProjectionResult.fromMap(Map<String, dynamic> map) {
+    return LiveProjectionResult(
+      granted: map['granted'] == true,
+      message: _stringOrNull(map['message']),
+    );
+  }
+
+  factory LiveProjectionResult.denied(String message) {
+    return LiveProjectionResult(granted: false, message: message);
+  }
+}
+
+String? _stringOrNull(dynamic value) {
+  if (value == null) return null;
+  final text = value.toString().trim();
+  return text.isEmpty ? null : text;
+}
+
+double? _doubleOrNull(dynamic value) {
+  if (value is num) return value.toDouble();
+  if (value is String) return double.tryParse(value);
+  return null;
+}
