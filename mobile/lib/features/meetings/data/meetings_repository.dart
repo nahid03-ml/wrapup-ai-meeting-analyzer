@@ -80,6 +80,12 @@ class MeetingsRepository {
     await _client.from('meetings').update({'is_deleted': true}).eq('id', id);
   }
 
+  /// Rollback-only hard delete for meetings created during failed upload.
+  /// Do not use for normal user deletion.
+  Future<void> hardDeleteMeetingForRollback(String id) async {
+    await _client.from('meetings').delete().eq('id', id);
+  }
+
   /// Emits once for each public.meetings realtime change.
   Stream<void> subscribeMeetings() {
     final controller = StreamController<void>();

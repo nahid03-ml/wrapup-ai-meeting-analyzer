@@ -7,6 +7,7 @@ import '../../../core/widgets/error_view.dart';
 import '../application/meeting_detail_provider.dart';
 import '../data/meeting.dart';
 import '../data/session.dart';
+import 'widgets/audio_player_section.dart';
 import 'widgets/meeting_detail_header.dart';
 import 'widgets/meeting_pending_banner.dart';
 import 'widgets/meeting_skeleton.dart';
@@ -101,6 +102,8 @@ class _MeetingDetailBody extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final currentSession = _currentSession(sessions);
+
     return DefaultTabController(
       length: 6,
       child: Column(
@@ -119,6 +122,11 @@ class _MeetingDetailBody extends StatelessWidget {
                 if (sessions.any((session) => session.isPending))
                   const SizedBox(height: AppSpacing.md),
                 MeetingDetailHeader(meeting: meeting, sessions: sessions),
+                if (currentSession?.audioFileUrl?.trim().isNotEmpty ==
+                    true) ...[
+                  const SizedBox(height: AppSpacing.md),
+                  AudioPlayerSection(session: currentSession!),
+                ],
               ],
             ),
           ),
@@ -199,4 +207,11 @@ void _showDeferredSnackBar(BuildContext context) {
 String _displayTitle(Meeting meeting) {
   final trimmed = meeting.title.trim();
   return trimmed.isEmpty ? 'Untitled Meeting' : trimmed;
+}
+
+MeetingSession? _currentSession(List<MeetingSession> sessions) {
+  if (sessions.isEmpty) return null;
+  final sorted = [...sessions]
+    ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+  return sorted.last;
 }

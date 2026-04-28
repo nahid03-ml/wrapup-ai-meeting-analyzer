@@ -11,7 +11,7 @@ import '../../features/auth/presentation/signup_page.dart';
 import '../../features/home/presentation/home_page.dart';
 import '../../features/meetings/presentation/meeting_detail_page.dart';
 import '../../features/meetings/presentation/meetings_list_page.dart';
-import '../../features/new_meeting/presentation/new_meeting_placeholder_page.dart';
+import '../../features/new_meeting/presentation/new_meeting_page.dart';
 import '../../features/profile/presentation/profile_page.dart';
 import '../providers/supabase_provider.dart';
 import '../shell/app_shell.dart';
@@ -136,7 +136,7 @@ final routerProvider = Provider<GoRouter>((ref) {
               GoRoute(
                 path: AppRoutes.dashboardNew,
                 name: 'dashboard-new',
-                builder: (context, state) => const NewMeetingPlaceholderPage(),
+                builder: (context, state) => const NewMeetingPage(),
               ),
             ],
           ),

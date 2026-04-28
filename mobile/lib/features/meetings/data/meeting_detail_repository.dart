@@ -62,6 +62,40 @@ class MeetingDetailRepository {
     return rows.map((row) => Participant.fromMap(_asRow(row))).toList();
   }
 
+  Future<int> countSessionsCreatedSinceForCurrentUser(
+    DateTime createdSince,
+  ) async {
+    final userId = _client.auth.currentUser?.id;
+    if (userId == null) {
+      return 0;
+    }
+
+    final rows = await _client
+        .from('sessions')
+        .select('id, meetings!inner(owner_id)')
+        .eq('meetings.owner_id', userId)
+        .gte('created_at', createdSince.toUtc().toIso8601String());
+
+    return rows.length;
+  }
+
+  Future<MeetingSession> insertSessionForUpload({
+    required String meetingId,
+    required String audioFileUrl,
+    required String language,
+  }) async {
+    final row = await _client
+        .from('sessions')
+        .insert({
+          'meeting_id': meetingId,
+          'audio_file_url': audioFileUrl,
+          'language_detected': language,
+        })
+        .select()
+        .single();
+    return MeetingSession.fromMap(_asRow(row));
+  }
+
   Future<Note> createNote({
     required String meetingId,
     required String content,

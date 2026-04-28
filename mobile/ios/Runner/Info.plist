@@ -24,6 +24,10 @@
 	<string>????</string>
 	<key>CFBundleVersion</key>
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>WrapUp AI uses your microphone to record meetings.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>WrapUp AI accesses your library so you can upload audio or video files.</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>UIApplicationSceneManifest</key>
