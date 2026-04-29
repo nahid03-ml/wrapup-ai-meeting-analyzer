@@ -69,7 +69,7 @@ class _AndroidCaptureSmokeTestPanelState
           ),
           const SizedBox(height: AppSpacing.sm),
           Text(
-            'System audio proof is active. It checks whether Android playback audio can be detected, but it does not stream audio to transcription yet.',
+            'This Phase 6F proof captures Android system playback only. Microphone capture is not active yet.',
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
               color: AppColors.textSecondary,
               height: 1.35,

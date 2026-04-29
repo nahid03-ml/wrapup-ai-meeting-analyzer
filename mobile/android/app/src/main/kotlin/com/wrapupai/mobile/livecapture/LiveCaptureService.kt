@@ -39,9 +39,11 @@ class LiveCaptureService : Service() {
             START_STICKY
         } catch (error: SecurityException) {
             running = false
+            val message = error.message
+                ?: "Foreground service permission denied for mediaProjection type."
             LiveCaptureStatusBus.emitError(
                 "foregroundServiceSecurityError",
-                error.message ?: "Foreground service permission denied.",
+                "mediaProjection foreground service type failed: $message",
             )
             stopSelf(startId)
             START_NOT_STICKY
@@ -75,8 +77,7 @@ class LiveCaptureService : Service() {
             startForeground(
                 NOTIFICATION_ID,
                 notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE or
-                    ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION,
             )
         } else {
             startForeground(NOTIFICATION_ID, notification)

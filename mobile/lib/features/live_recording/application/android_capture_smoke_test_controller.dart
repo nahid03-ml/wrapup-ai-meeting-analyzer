@@ -63,7 +63,7 @@ class AndroidCaptureSmokeTestController
       state = state.copyWith(
         status: AndroidCaptureSmokeTestStatus.requestingPermissions,
         isRequestingPermissions: true,
-        statusText: 'Requesting microphone permission.',
+        statusText: 'Requesting Android audio capture permission.',
         clearError: true,
       );
 
@@ -75,9 +75,10 @@ class AndroidCaptureSmokeTestController
         state = state.copyWith(
           status: AndroidCaptureSmokeTestStatus.serviceFailed,
           isRequestingPermissions: false,
-          statusText: 'Microphone permission is required for live capture.',
+          statusText:
+              'Android audio capture permission is required for this proof.',
           errorMessage:
-              'Microphone permission was denied. Android capture cannot start.',
+              'Audio capture permission was denied. Android playback capture cannot start.',
         );
         return;
       }
@@ -143,7 +144,12 @@ class AndroidCaptureSmokeTestController
         statusText: 'Starting Android live capture foreground service.',
       );
 
-      await _capturePlatform.startCapture(const LiveCaptureConfig());
+      await _capturePlatform.startCapture(
+        const LiveCaptureConfig(
+          captureSystemAudio: true,
+          captureMicrophone: false,
+        ),
+      );
       state = state.copyWith(
         statusText: 'Waiting for foreground service status.',
       );
@@ -356,7 +362,7 @@ class AndroidCaptureSmokeTestController
           systemPlaybackStatus: 'running',
           systemAudioSampleRateHz: event.sampleRateHz,
           statusText:
-              'System audio proof is active. It checks whether Android playback audio can be detected, but it does not stream audio to transcription yet.',
+              'This Phase 6F proof captures Android system playback only. Microphone capture is not active yet.',
           events: events,
           clearError: true,
         );
