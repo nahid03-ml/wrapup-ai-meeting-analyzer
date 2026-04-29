@@ -40,6 +40,15 @@ class LiveCaptureEvent {
     this.systemFramesBuffered,
     this.micFramesBuffered,
     this.droppedFrames,
+    this.microphoneAecAvailable,
+    this.microphoneAecEnabled,
+    this.microphoneNoiseSuppressorAvailable,
+    this.microphoneNoiseSuppressorEnabled,
+    this.microphoneAgcAvailable,
+    this.microphoneAgcEnabled,
+    this.micDucked,
+    this.effectiveMicGain,
+    this.effectiveSystemGain,
   });
 
   final LiveCaptureEventType eventType;
@@ -60,6 +69,15 @@ class LiveCaptureEvent {
   final int? systemFramesBuffered;
   final int? micFramesBuffered;
   final int? droppedFrames;
+  final bool? microphoneAecAvailable;
+  final bool? microphoneAecEnabled;
+  final bool? microphoneNoiseSuppressorAvailable;
+  final bool? microphoneNoiseSuppressorEnabled;
+  final bool? microphoneAgcAvailable;
+  final bool? microphoneAgcEnabled;
+  final bool? micDucked;
+  final double? effectiveMicGain;
+  final double? effectiveSystemGain;
 
   String get type => eventType.wireValue;
 
@@ -86,6 +104,17 @@ class LiveCaptureEvent {
       systemFramesBuffered: _intOrNull(map['systemFramesBuffered']),
       micFramesBuffered: _intOrNull(map['micFramesBuffered']),
       droppedFrames: _intOrNull(map['droppedFrames']),
+      microphoneAecAvailable: _boolOrNull(map['microphoneAecAvailable']),
+      microphoneAecEnabled: _boolOrNull(map['microphoneAecEnabled']),
+      microphoneNoiseSuppressorAvailable:
+          _boolOrNull(map['microphoneNoiseSuppressorAvailable']),
+      microphoneNoiseSuppressorEnabled:
+          _boolOrNull(map['microphoneNoiseSuppressorEnabled']),
+      microphoneAgcAvailable: _boolOrNull(map['microphoneAgcAvailable']),
+      microphoneAgcEnabled: _boolOrNull(map['microphoneAgcEnabled']),
+      micDucked: _boolOrNull(map['micDucked']),
+      effectiveMicGain: _doubleOrNull(map['effectiveMicGain']),
+      effectiveSystemGain: _doubleOrNull(map['effectiveSystemGain']),
     );
   }
 

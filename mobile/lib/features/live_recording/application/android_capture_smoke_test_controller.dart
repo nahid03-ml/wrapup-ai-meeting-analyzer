@@ -79,6 +79,7 @@ class AndroidCaptureSmokeTestController
     required bool captureMicrophone,
     required bool requiresProjection,
   }) async {
+    final isMixedProof = captureSystemAudio && captureMicrophone;
     await _ensureStatusSubscription();
 
     final environment = await _capturePlatform.getAndroidCaptureEnvironment();
@@ -197,23 +198,21 @@ class AndroidCaptureSmokeTestController
         isMicSilent: captureMicrophone ? true : state.isMicSilent,
         clearMicAudioSampleRateHz: captureMicrophone,
         clearMicAudioSource: captureMicrophone,
-        mixedCaptureStatus: captureSystemAudio && captureMicrophone
+        clearMicrophoneEffectStatus: captureMicrophone,
+        mixedCaptureStatus: isMixedProof
             ? 'not started'
             : state.mixedCaptureStatus,
-        mixedReadStatus: captureSystemAudio && captureMicrophone
+        mixedReadStatus: isMixedProof
             ? 'not started'
             : state.mixedReadStatus,
-        mixedAudioLevel:
-            captureSystemAudio && captureMicrophone ? 0.0 : state.mixedAudioLevel,
-        isMixedSilent:
-            captureSystemAudio && captureMicrophone ? true : state.isMixedSilent,
-        clearMixedAudioSampleRateHz: captureSystemAudio && captureMicrophone,
-        mixedClippingCount:
-            captureSystemAudio && captureMicrophone ? 0 : state.mixedClippingCount,
-        clearMixedSystemFramesBuffered: captureSystemAudio && captureMicrophone,
-        clearMixedMicFramesBuffered: captureSystemAudio && captureMicrophone,
-        mixedWarnings:
-            captureSystemAudio && captureMicrophone ? const <String>[] : state.mixedWarnings,
+        mixedAudioLevel: isMixedProof ? 0.0 : state.mixedAudioLevel,
+        isMixedSilent: isMixedProof ? true : state.isMixedSilent,
+        clearMixedAudioSampleRateHz: isMixedProof,
+        mixedClippingCount: isMixedProof ? 0 : state.mixedClippingCount,
+        clearMixedSystemFramesBuffered: isMixedProof,
+        clearMixedMicFramesBuffered: isMixedProof,
+        clearMixedEchoControlStatus: isMixedProof,
+        mixedWarnings: isMixedProof ? const <String>[] : state.mixedWarnings,
         systemAudioLevel: captureSystemAudio ? 0.0 : state.systemAudioLevel,
         isSystemAudioSilent:
             captureSystemAudio ? true : state.isSystemAudioSilent,
@@ -225,6 +224,8 @@ class AndroidCaptureSmokeTestController
         LiveCaptureConfig(
           captureSystemAudio: captureSystemAudio,
           captureMicrophone: captureMicrophone,
+          enableAutomaticGainControl: isMixedProof,
+          enableMicDucking: isMixedProof,
         ),
       );
       state = state.copyWith(
@@ -399,6 +400,9 @@ class AndroidCaptureSmokeTestController
             event.clippingCount ?? state.mixedClippingCount,
         mixedSystemFramesBuffered: event.systemFramesBuffered,
         mixedMicFramesBuffered: event.micFramesBuffered,
+        micDucked: event.micDucked,
+        effectiveMicGain: event.effectiveMicGain,
+        effectiveSystemGain: event.effectiveSystemGain,
         mixedCaptureStatus: isSilent ? 'silent' : 'audio detected',
         mixedReadStatus: isSilent ? 'mixing silent frames' : 'mixing audio',
         events: events,
@@ -617,7 +621,32 @@ class AndroidCaptureSmokeTestController
           micAudioSampleRateHz: event.sampleRateHz,
           micAudioSource: event.audioSource,
           micAudioRecordDetails: _audioRecordDetails(event),
+          microphoneAecAvailable: event.microphoneAecAvailable,
+          microphoneAecEnabled: event.microphoneAecEnabled,
+          microphoneNoiseSuppressorAvailable:
+              event.microphoneNoiseSuppressorAvailable,
+          microphoneNoiseSuppressorEnabled:
+              event.microphoneNoiseSuppressorEnabled,
+          microphoneAgcAvailable: event.microphoneAgcAvailable,
+          microphoneAgcEnabled: event.microphoneAgcEnabled,
           statusText: event.message ?? 'Microphone AudioRecord was built.',
+          events: events,
+          clearError: true,
+        );
+      case 'microphoneEchoCancelerEnabled' ||
+          'microphoneNoiseSuppressorEnabled' ||
+          'microphoneAutomaticGainControlEnabled' ||
+          'microphoneEchoControlUnavailable':
+        state = state.copyWith(
+          microphoneAecAvailable: event.microphoneAecAvailable,
+          microphoneAecEnabled: event.microphoneAecEnabled,
+          microphoneNoiseSuppressorAvailable:
+              event.microphoneNoiseSuppressorAvailable,
+          microphoneNoiseSuppressorEnabled:
+              event.microphoneNoiseSuppressorEnabled,
+          microphoneAgcAvailable: event.microphoneAgcAvailable,
+          microphoneAgcEnabled: event.microphoneAgcEnabled,
+          statusText: event.message ?? 'Microphone echo-control status updated.',
           events: events,
           clearError: true,
         );
@@ -757,6 +786,9 @@ class AndroidCaptureSmokeTestController
           mixedAudioSampleRateHz: event.sampleRateHz,
           mixedSystemFramesBuffered: event.systemFramesBuffered,
           mixedMicFramesBuffered: event.micFramesBuffered,
+          micDucked: event.micDucked,
+          effectiveMicGain: event.effectiveMicGain,
+          effectiveSystemGain: event.effectiveSystemGain,
           statusText:
               'This checks local native mixing only. It does not stream audio to transcription yet.',
           events: events,
@@ -785,6 +817,9 @@ class AndroidCaptureSmokeTestController
               event.clippingCount ?? state.mixedClippingCount,
           mixedSystemFramesBuffered: event.systemFramesBuffered,
           mixedMicFramesBuffered: event.micFramesBuffered,
+          micDucked: event.micDucked,
+          effectiveMicGain: event.effectiveMicGain,
+          effectiveSystemGain: event.effectiveSystemGain,
           statusText: event.message ?? 'Mixed PCM output frame is ready.',
           events: events,
           clearError: true,
@@ -798,6 +833,9 @@ class AndroidCaptureSmokeTestController
           isMixedSilent: false,
           mixedSystemFramesBuffered: event.systemFramesBuffered,
           mixedMicFramesBuffered: event.micFramesBuffered,
+          micDucked: event.micDucked,
+          effectiveMicGain: event.effectiveMicGain,
+          effectiveSystemGain: event.effectiveSystemGain,
           statusText: event.message ?? 'Mixed audio detected.',
           events: events,
           clearError: true,
@@ -810,8 +848,33 @@ class AndroidCaptureSmokeTestController
           mixedReadStatus: 'waiting for input',
           mixedSystemFramesBuffered: event.systemFramesBuffered,
           mixedMicFramesBuffered: event.micFramesBuffered,
+          micDucked: event.micDucked,
+          effectiveMicGain: event.effectiveMicGain,
+          effectiveSystemGain: event.effectiveSystemGain,
           statusText:
               event.message ?? 'Mixer is waiting for system or microphone frames.',
+          events: events,
+          clearError: true,
+        );
+      case 'mixedMicDuckedForEchoControl':
+        state = state.copyWith(
+          mixedCaptureStatus: 'mic ducked',
+          micDucked: true,
+          effectiveMicGain: event.effectiveMicGain,
+          effectiveSystemGain: event.effectiveSystemGain,
+          statusText:
+              event.message ?? 'Microphone gain reduced for echo control.',
+          events: events,
+          clearError: true,
+        );
+      case 'mixedMicRestoredAfterEchoControl':
+        state = state.copyWith(
+          mixedCaptureStatus: 'mic restored',
+          micDucked: false,
+          effectiveMicGain: event.effectiveMicGain,
+          effectiveSystemGain: event.effectiveSystemGain,
+          statusText:
+              event.message ?? 'Microphone gain restored after echo control.',
           events: events,
           clearError: true,
         );

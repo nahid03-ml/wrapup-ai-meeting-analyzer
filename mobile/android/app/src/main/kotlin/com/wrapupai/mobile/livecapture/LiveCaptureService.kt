@@ -363,6 +363,9 @@ class LiveCaptureService : Service() {
                     clippingCount: Int,
                     systemFramesBuffered: Int,
                     micFramesBuffered: Int,
+                    micDucked: Boolean,
+                    effectiveMicGain: Double,
+                    effectiveSystemGain: Double,
                 ) {
                     LiveCaptureStatusBus.emitAudioLevel(
                         level = level,
@@ -374,6 +377,9 @@ class LiveCaptureService : Service() {
                             "clippingCount" to clippingCount,
                             "systemFramesBuffered" to systemFramesBuffered,
                             "micFramesBuffered" to micFramesBuffered,
+                            "micDucked" to micDucked,
+                            "effectiveMicGain" to effectiveMicGain,
+                            "effectiveSystemGain" to effectiveSystemGain,
                         ),
                     )
                 }

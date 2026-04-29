@@ -25,6 +25,9 @@ class LiveAudioMixer(
             clippingCount: Int,
             systemFramesBuffered: Int,
             micFramesBuffered: Int,
+            micDucked: Boolean,
+            effectiveMicGain: Double,
+            effectiveSystemGain: Double,
         )
 
         fun onMixedCaptureWarning(message: String, code: String? = null)
@@ -134,6 +137,7 @@ class LiveAudioMixer(
         var audioDetectedEmitted = false
         var onlySystemWarningEmitted = false
         var onlyMicWarningEmitted = false
+        var micDuckedForEchoControl = false
         val startedAtMs = SystemClock.elapsedRealtime()
 
         listener.onMixedCaptureStatus(
@@ -189,7 +193,50 @@ class LiveAudioMixer(
                     )
                 }
 
-                val mixedFrame = mixFrames(systemFrame, microphoneFrame)
+                val systemLevel = sourceLevel(systemFrame)
+                val microphoneLevel = sourceLevel(microphoneFrame)
+                val shouldDuckMic = shouldDuckMicrophone(
+                    systemLevel = systemLevel,
+                    microphoneLevel = microphoneLevel,
+                )
+                if (shouldDuckMic != micDuckedForEchoControl) {
+                    micDuckedForEchoControl = shouldDuckMic
+                    if (micDuckedForEchoControl) {
+                        listener.onMixedCaptureStatus(
+                            LiveCaptureAudioContract.STATUS_MIXED_MIC_DUCKED_FOR_ECHO_CONTROL,
+                            "Microphone gain reduced while system audio is active.",
+                            fields(
+                                micDucked = true,
+                                effectiveMicGain = config.micEchoDuckedGain,
+                                effectiveSystemGain = config.systemGain,
+                            ),
+                        )
+                    } else {
+                        listener.onMixedCaptureStatus(
+                            LiveCaptureAudioContract.STATUS_MIXED_MIC_RESTORED_AFTER_ECHO_CONTROL,
+                            "Microphone gain restored for stronger voice input.",
+                            fields(
+                                micDucked = false,
+                                effectiveMicGain = config.micGain,
+                                effectiveSystemGain = config.systemGain,
+                            ),
+                        )
+                    }
+                }
+
+                val effectiveMicGain = if (micDuckedForEchoControl) {
+                    config.micEchoDuckedGain
+                } else {
+                    config.micGain
+                }
+                val effectiveSystemGain = config.systemGain
+
+                val mixedFrame = mixFrames(
+                    systemFrame = systemFrame,
+                    microphoneFrame = microphoneFrame,
+                    effectiveSystemGain = effectiveSystemGain,
+                    effectiveMicGain = effectiveMicGain,
+                )
                 if (mixedFrame.samples.isEmpty()) {
                     sleepBriefly()
                     continue
@@ -204,7 +251,12 @@ class LiveAudioMixer(
                     listener.onMixedCaptureStatus(
                         LiveCaptureAudioContract.STATUS_MIXED_OUTPUT_FRAME_READY,
                         "Mixed PCM output frame is ready.",
-                        fields(clippingCount = mixedFrame.clippingCount),
+                        fields(
+                            clippingCount = mixedFrame.clippingCount,
+                            micDucked = micDuckedForEchoControl,
+                            effectiveMicGain = effectiveMicGain,
+                            effectiveSystemGain = effectiveSystemGain,
+                        ),
                     )
                 }
                 if (firstOutputAtMs == 0L) {
@@ -218,7 +270,12 @@ class LiveAudioMixer(
                         listener.onMixedCaptureStatus(
                             LiveCaptureAudioContract.STATUS_MIXED_AUDIO_DETECTED,
                             "Mixed audio detected.",
-                            fields(clippingCount = mixedFrame.clippingCount),
+                            fields(
+                                clippingCount = mixedFrame.clippingCount,
+                                micDucked = micDuckedForEchoControl,
+                                effectiveMicGain = effectiveMicGain,
+                                effectiveSystemGain = effectiveSystemGain,
+                            ),
                         )
                     }
                     audioDetectedEmitted = true
@@ -265,6 +322,9 @@ class LiveAudioMixer(
                         clippingCount = totalClippingCount,
                         systemFramesBuffered = systemBuffer.size(),
                         micFramesBuffered = microphoneBuffer.size(),
+                        micDucked = micDuckedForEchoControl,
+                        effectiveMicGain = effectiveMicGain,
+                        effectiveSystemGain = effectiveSystemGain,
                     )
                 }
 
@@ -285,6 +345,8 @@ class LiveAudioMixer(
     private fun mixFrames(
         systemFrame: ShortArray?,
         microphoneFrame: ShortArray?,
+        effectiveSystemGain: Double,
+        effectiveMicGain: Double,
     ): MixedAudioFrame {
         val outputLength = maxOf(systemFrame?.size ?: 0, microphoneFrame?.size ?: 0)
         if (outputLength <= 0) {
@@ -294,8 +356,8 @@ class LiveAudioMixer(
         val mixed = ShortArray(outputLength)
         var clippingCount = 0
         for (index in 0 until outputLength) {
-            val systemSample = systemFrame.sampleAt(index) * config.systemGain
-            val microphoneSample = microphoneFrame.sampleAt(index) * config.micGain
+            val systemSample = systemFrame.sampleAt(index) * effectiveSystemGain
+            val microphoneSample = microphoneFrame.sampleAt(index) * effectiveMicGain
             val summed = systemSample + microphoneSample
             if (abs(summed) > 1.0) {
                 clippingCount += 1
@@ -314,6 +376,19 @@ class LiveAudioMixer(
             return 0.0
         }
         return this[index].toDouble() / Short.MAX_VALUE.toDouble()
+    }
+
+    private fun sourceLevel(frame: ShortArray?): Double {
+        if (frame == null || frame.isEmpty()) {
+            return 0.0
+        }
+        return levelMeter.calculate(frame, frame.size).level
+    }
+
+    private fun shouldDuckMicrophone(systemLevel: Double, microphoneLevel: Double): Boolean {
+        return config.enableMicDucking &&
+            systemLevel >= config.systemActiveThreshold &&
+            microphoneLevel < config.micSpeechThreshold
     }
 
     private fun emitFrameDropIfNeeded(
@@ -342,12 +417,18 @@ class LiveAudioMixer(
     private fun fields(
         clippingCount: Int = 0,
         droppedFrames: Int = 0,
+        micDucked: Boolean = false,
+        effectiveMicGain: Double = config.micGain,
+        effectiveSystemGain: Double = config.systemGain,
     ): Map<String, Any?> {
         return baseFields() + mapOf(
             "clippingCount" to clippingCount,
             "systemFramesBuffered" to systemBuffer.size(),
             "micFramesBuffered" to microphoneBuffer.size(),
             "droppedFrames" to droppedFrames,
+            "micDucked" to micDucked,
+            "effectiveMicGain" to effectiveMicGain,
+            "effectiveSystemGain" to effectiveSystemGain,
         )
     }
 

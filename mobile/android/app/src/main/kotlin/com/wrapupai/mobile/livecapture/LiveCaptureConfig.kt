@@ -10,6 +10,13 @@ data class LiveCaptureConfig(
     val bitsPerSample: Int = 16,
     val micGain: Double = 0.8,
     val systemGain: Double = 0.8,
+    val enableEchoCanceler: Boolean = true,
+    val enableNoiseSuppressor: Boolean = true,
+    val enableAutomaticGainControl: Boolean = false,
+    val enableMicDucking: Boolean = true,
+    val micEchoDuckedGain: Double = 0.25,
+    val systemActiveThreshold: Double = 0.02,
+    val micSpeechThreshold: Double = 0.04,
 ) {
     fun addToIntent(intent: Intent): Intent {
         return intent
@@ -20,6 +27,13 @@ data class LiveCaptureConfig(
             .putExtra(EXTRA_BITS_PER_SAMPLE, bitsPerSample)
             .putExtra(EXTRA_MIC_GAIN, micGain)
             .putExtra(EXTRA_SYSTEM_GAIN, systemGain)
+            .putExtra(EXTRA_ENABLE_ECHO_CANCELER, enableEchoCanceler)
+            .putExtra(EXTRA_ENABLE_NOISE_SUPPRESSOR, enableNoiseSuppressor)
+            .putExtra(EXTRA_ENABLE_AUTOMATIC_GAIN_CONTROL, enableAutomaticGainControl)
+            .putExtra(EXTRA_ENABLE_MIC_DUCKING, enableMicDucking)
+            .putExtra(EXTRA_MIC_ECHO_DUCKED_GAIN, micEchoDuckedGain)
+            .putExtra(EXTRA_SYSTEM_ACTIVE_THRESHOLD, systemActiveThreshold)
+            .putExtra(EXTRA_MIC_SPEECH_THRESHOLD, micSpeechThreshold)
     }
 
     companion object {
@@ -30,6 +44,13 @@ data class LiveCaptureConfig(
         const val EXTRA_BITS_PER_SAMPLE = "bitsPerSample"
         const val EXTRA_MIC_GAIN = "micGain"
         const val EXTRA_SYSTEM_GAIN = "systemGain"
+        const val EXTRA_ENABLE_ECHO_CANCELER = "enableEchoCanceler"
+        const val EXTRA_ENABLE_NOISE_SUPPRESSOR = "enableNoiseSuppressor"
+        const val EXTRA_ENABLE_AUTOMATIC_GAIN_CONTROL = "enableAutomaticGainControl"
+        const val EXTRA_ENABLE_MIC_DUCKING = "enableMicDucking"
+        const val EXTRA_MIC_ECHO_DUCKED_GAIN = "micEchoDuckedGain"
+        const val EXTRA_SYSTEM_ACTIVE_THRESHOLD = "systemActiveThreshold"
+        const val EXTRA_MIC_SPEECH_THRESHOLD = "micSpeechThreshold"
 
         fun fromArguments(arguments: Any?): LiveCaptureConfig {
             val map = arguments as? Map<*, *> ?: emptyMap<Any, Any>()
@@ -41,6 +62,14 @@ data class LiveCaptureConfig(
                 bitsPerSample = map.intValue("bitsPerSample", 16),
                 micGain = map.doubleValue("micGain", 0.8),
                 systemGain = map.doubleValue("systemGain", 0.8),
+                enableEchoCanceler = map.booleanValue("enableEchoCanceler", true),
+                enableNoiseSuppressor = map.booleanValue("enableNoiseSuppressor", true),
+                enableAutomaticGainControl =
+                    map.booleanValue("enableAutomaticGainControl", false),
+                enableMicDucking = map.booleanValue("enableMicDucking", true),
+                micEchoDuckedGain = map.doubleValue("micEchoDuckedGain", 0.25),
+                systemActiveThreshold = map.doubleValue("systemActiveThreshold", 0.02),
+                micSpeechThreshold = map.doubleValue("micSpeechThreshold", 0.04),
             )
         }
 
@@ -53,6 +82,25 @@ data class LiveCaptureConfig(
                 bitsPerSample = intent.getIntExtra(EXTRA_BITS_PER_SAMPLE, 16),
                 micGain = intent.getDoubleExtra(EXTRA_MIC_GAIN, 0.8),
                 systemGain = intent.getDoubleExtra(EXTRA_SYSTEM_GAIN, 0.8),
+                enableEchoCanceler = intent.getBooleanExtra(
+                    EXTRA_ENABLE_ECHO_CANCELER,
+                    true,
+                ),
+                enableNoiseSuppressor = intent.getBooleanExtra(
+                    EXTRA_ENABLE_NOISE_SUPPRESSOR,
+                    true,
+                ),
+                enableAutomaticGainControl = intent.getBooleanExtra(
+                    EXTRA_ENABLE_AUTOMATIC_GAIN_CONTROL,
+                    false,
+                ),
+                enableMicDucking = intent.getBooleanExtra(EXTRA_ENABLE_MIC_DUCKING, true),
+                micEchoDuckedGain = intent.getDoubleExtra(EXTRA_MIC_ECHO_DUCKED_GAIN, 0.25),
+                systemActiveThreshold = intent.getDoubleExtra(
+                    EXTRA_SYSTEM_ACTIVE_THRESHOLD,
+                    0.02,
+                ),
+                micSpeechThreshold = intent.getDoubleExtra(EXTRA_MIC_SPEECH_THRESHOLD, 0.04),
             )
         }
     }

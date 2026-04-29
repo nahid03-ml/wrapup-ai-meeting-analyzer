@@ -50,6 +50,12 @@ class AndroidCaptureSmokeTestState {
     this.isMicSilent = true,
     this.micAudioSampleRateHz,
     this.micAudioSource,
+    this.microphoneAecAvailable,
+    this.microphoneAecEnabled,
+    this.microphoneNoiseSuppressorAvailable,
+    this.microphoneNoiseSuppressorEnabled,
+    this.microphoneAgcAvailable,
+    this.microphoneAgcEnabled,
     this.mixedCaptureStatus = 'not started',
     this.mixedReadStatus = 'not started',
     this.mixedAudioLevel = 0.0,
@@ -58,6 +64,9 @@ class AndroidCaptureSmokeTestState {
     this.mixedClippingCount = 0,
     this.mixedSystemFramesBuffered,
     this.mixedMicFramesBuffered,
+    this.micDucked = false,
+    this.effectiveMicGain,
+    this.effectiveSystemGain,
     this.mixedWarnings = const <String>[],
     this.systemAudioLevel = 0.0,
     this.isSystemAudioSilent = true,
@@ -94,6 +103,12 @@ class AndroidCaptureSmokeTestState {
   final bool isMicSilent;
   final int? micAudioSampleRateHz;
   final String? micAudioSource;
+  final bool? microphoneAecAvailable;
+  final bool? microphoneAecEnabled;
+  final bool? microphoneNoiseSuppressorAvailable;
+  final bool? microphoneNoiseSuppressorEnabled;
+  final bool? microphoneAgcAvailable;
+  final bool? microphoneAgcEnabled;
   final String mixedCaptureStatus;
   final String mixedReadStatus;
   final double mixedAudioLevel;
@@ -102,6 +117,9 @@ class AndroidCaptureSmokeTestState {
   final int mixedClippingCount;
   final int? mixedSystemFramesBuffered;
   final int? mixedMicFramesBuffered;
+  final bool micDucked;
+  final double? effectiveMicGain;
+  final double? effectiveSystemGain;
   final List<String> mixedWarnings;
   final double systemAudioLevel;
   final bool isSystemAudioSilent;
@@ -197,6 +215,13 @@ class AndroidCaptureSmokeTestState {
     bool clearMicAudioSampleRateHz = false,
     String? micAudioSource,
     bool clearMicAudioSource = false,
+    bool? microphoneAecAvailable,
+    bool? microphoneAecEnabled,
+    bool? microphoneNoiseSuppressorAvailable,
+    bool? microphoneNoiseSuppressorEnabled,
+    bool? microphoneAgcAvailable,
+    bool? microphoneAgcEnabled,
+    bool clearMicrophoneEffectStatus = false,
     String? mixedCaptureStatus,
     String? mixedReadStatus,
     double? mixedAudioLevel,
@@ -208,6 +233,10 @@ class AndroidCaptureSmokeTestState {
     bool clearMixedSystemFramesBuffered = false,
     int? mixedMicFramesBuffered,
     bool clearMixedMicFramesBuffered = false,
+    bool? micDucked,
+    double? effectiveMicGain,
+    double? effectiveSystemGain,
+    bool clearMixedEchoControlStatus = false,
     List<String>? mixedWarnings,
     double? systemAudioLevel,
     bool? isSystemAudioSilent,
@@ -265,6 +294,26 @@ class AndroidCaptureSmokeTestState {
       micAudioSource: clearMicAudioSource
           ? null
           : micAudioSource ?? this.micAudioSource,
+      microphoneAecAvailable: clearMicrophoneEffectStatus
+          ? null
+          : microphoneAecAvailable ?? this.microphoneAecAvailable,
+      microphoneAecEnabled: clearMicrophoneEffectStatus
+          ? null
+          : microphoneAecEnabled ?? this.microphoneAecEnabled,
+      microphoneNoiseSuppressorAvailable: clearMicrophoneEffectStatus
+          ? null
+          : microphoneNoiseSuppressorAvailable ??
+              this.microphoneNoiseSuppressorAvailable,
+      microphoneNoiseSuppressorEnabled: clearMicrophoneEffectStatus
+          ? null
+          : microphoneNoiseSuppressorEnabled ??
+              this.microphoneNoiseSuppressorEnabled,
+      microphoneAgcAvailable: clearMicrophoneEffectStatus
+          ? null
+          : microphoneAgcAvailable ?? this.microphoneAgcAvailable,
+      microphoneAgcEnabled: clearMicrophoneEffectStatus
+          ? null
+          : microphoneAgcEnabled ?? this.microphoneAgcEnabled,
       mixedCaptureStatus: mixedCaptureStatus ?? this.mixedCaptureStatus,
       mixedReadStatus: mixedReadStatus ?? this.mixedReadStatus,
       mixedAudioLevel: mixedAudioLevel ?? this.mixedAudioLevel,
@@ -279,6 +328,15 @@ class AndroidCaptureSmokeTestState {
       mixedMicFramesBuffered: clearMixedMicFramesBuffered
           ? null
           : mixedMicFramesBuffered ?? this.mixedMicFramesBuffered,
+      micDucked: clearMixedEchoControlStatus
+          ? false
+          : micDucked ?? this.micDucked,
+      effectiveMicGain: clearMixedEchoControlStatus
+          ? null
+          : effectiveMicGain ?? this.effectiveMicGain,
+      effectiveSystemGain: clearMixedEchoControlStatus
+          ? null
+          : effectiveSystemGain ?? this.effectiveSystemGain,
       mixedWarnings: mixedWarnings ?? this.mixedWarnings,
       systemAudioLevel: systemAudioLevel ?? this.systemAudioLevel,
       isSystemAudioSilent: isSystemAudioSilent ?? this.isSystemAudioSilent,

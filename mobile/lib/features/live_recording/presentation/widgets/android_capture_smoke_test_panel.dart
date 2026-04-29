@@ -154,6 +154,27 @@ class _AndroidCaptureSmokeTestPanelState
             ),
           if (state.micAudioSource != null)
             _StatusRow(label: 'Mic source', value: state.micAudioSource!),
+          _StatusRow(
+            label: 'AEC',
+            value: _effectLabel(
+              state.microphoneAecAvailable,
+              state.microphoneAecEnabled,
+            ),
+          ),
+          _StatusRow(
+            label: 'NoiseSuppressor',
+            value: _effectLabel(
+              state.microphoneNoiseSuppressorAvailable,
+              state.microphoneNoiseSuppressorEnabled,
+            ),
+          ),
+          _StatusRow(
+            label: 'AGC',
+            value: _effectLabel(
+              state.microphoneAgcAvailable,
+              state.microphoneAgcEnabled,
+            ),
+          ),
           if (state.micAudioRecordDetails != null)
             _StatusRow(
               label: 'Mic AudioRecord',
@@ -186,6 +207,20 @@ class _AndroidCaptureSmokeTestPanelState
             label: 'Clipping count',
             value: state.mixedClippingCount.toString(),
           ),
+          _StatusRow(
+            label: 'Mic ducking',
+            value: state.micDucked ? 'active' : 'inactive',
+          ),
+          if (state.effectiveMicGain != null)
+            _StatusRow(
+              label: 'Effective mic gain',
+              value: _gainLabel(state.effectiveMicGain!),
+            ),
+          if (state.effectiveSystemGain != null)
+            _StatusRow(
+              label: 'Effective system gain',
+              value: _gainLabel(state.effectiveSystemGain!),
+            ),
           if (state.mixedSystemFramesBuffered != null)
             _StatusRow(
               label: 'System frames buffered',
@@ -485,4 +520,17 @@ String _eventLabel(LiveCaptureEvent event) {
     return code;
   }
   return event.type.toString();
+}
+
+String _effectLabel(bool? available, bool? enabled) {
+  if (available == null && enabled == null) {
+    return 'not checked';
+  }
+  final availability = available == true ? 'available' : 'unavailable';
+  final enabledText = enabled == true ? 'enabled' : 'disabled';
+  return '$availability · $enabledText';
+}
+
+String _gainLabel(double gain) {
+  return gain.toStringAsFixed(2);
 }

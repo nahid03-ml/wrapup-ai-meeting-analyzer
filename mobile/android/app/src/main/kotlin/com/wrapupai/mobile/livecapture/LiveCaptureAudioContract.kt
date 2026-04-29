@@ -38,6 +38,14 @@ object LiveCaptureAudioContract {
     const val STATUS_MICROPHONE_FIRST_FRAME_READ = "microphoneFirstFrameRead"
     const val STATUS_MICROPHONE_READ_STOPPED = "microphoneReadStopped"
     const val STATUS_MICROPHONE_AUDIO_DETECTED = "microphoneAudioDetected"
+    const val STATUS_MICROPHONE_ECHO_CANCELER_ENABLED =
+        "microphoneEchoCancelerEnabled"
+    const val STATUS_MICROPHONE_NOISE_SUPPRESSOR_ENABLED =
+        "microphoneNoiseSuppressorEnabled"
+    const val STATUS_MICROPHONE_AUTOMATIC_GAIN_CONTROL_ENABLED =
+        "microphoneAutomaticGainControlEnabled"
+    const val STATUS_MICROPHONE_ECHO_CONTROL_UNAVAILABLE =
+        "microphoneEchoControlUnavailable"
 
     const val STATUS_PLAYBACK_READ_STARTED = "playbackReadStarted"
     const val STATUS_PLAYBACK_READ_NO_DATA = "playbackReadNoData"
@@ -52,6 +60,10 @@ object LiveCaptureAudioContract {
     const val STATUS_MIXED_OUTPUT_FRAME_READY = "mixedOutputFrameReady"
     const val STATUS_MIXED_AUDIO_DETECTED = "mixedAudioDetected"
     const val STATUS_MIXED_AUDIO_NO_INPUT = "mixedAudioNoInput"
+    const val STATUS_MIXED_MIC_DUCKED_FOR_ECHO_CONTROL =
+        "mixedMicDuckedForEchoControl"
+    const val STATUS_MIXED_MIC_RESTORED_AFTER_ECHO_CONTROL =
+        "mixedMicRestoredAfterEchoControl"
 
     const val WARNING_SYSTEM_PLAYBACK_SILENT = "systemPlaybackSilent"
     const val WARNING_PLAYBACK_CAPTURE_NO_FRAMES = "playbackCaptureNoFrames"

@@ -3,6 +3,9 @@ package com.wrapupai.mobile.livecapture
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
+import android.media.audiofx.AcousticEchoCanceler
+import android.media.audiofx.AutomaticGainControl
+import android.media.audiofx.NoiseSuppressor
 import android.os.SystemClock
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
@@ -51,6 +54,9 @@ class MicrophoneAudioCapture(
 
     @Volatile
     private var executor: ExecutorService? = null
+    private var acousticEchoCanceler: AcousticEchoCanceler? = null
+    private var noiseSuppressor: NoiseSuppressor? = null
+    private var automaticGainControl: AutomaticGainControl? = null
 
     fun start() {
         if (!running.compareAndSet(false, true)) {
@@ -96,6 +102,7 @@ class MicrophoneAudioCapture(
         }
 
         audioRecord = record
+        val audioEffectsState = configureAudioEffects(record)
         listener.onMicrophoneCaptureStatus(
             LiveCaptureAudioContract.STATUS_MICROPHONE_AUDIO_RECORD_BUILT,
             "Microphone AudioRecord was built.",
@@ -105,8 +112,9 @@ class MicrophoneAudioCapture(
                 "bufferSizeBytes" to selectedRecord.bufferSizeBytes,
                 "recordingState" to record.recordingState,
                 "audioSource" to selectedRecord.audioSourceName,
-            ),
+            ) + audioEffectsState.fields(),
         )
+        emitAudioEffectStatuses(audioEffectsState)
 
         executor = Executors.newSingleThreadExecutor(CaptureThreadFactory)
         executor?.execute {
@@ -147,10 +155,18 @@ class MicrophoneAudioCapture(
             48000,
             44100,
         ).distinct().filter { it > 0 }
-        val audioSources = listOf(
-            MediaRecorder.AudioSource.VOICE_RECOGNITION to "VOICE_RECOGNITION",
-            MediaRecorder.AudioSource.MIC to "MIC",
-        )
+        val audioSources = if (config.captureSystemAudio && config.captureMicrophone) {
+            listOf(
+                MediaRecorder.AudioSource.VOICE_COMMUNICATION to "VOICE_COMMUNICATION",
+                MediaRecorder.AudioSource.VOICE_RECOGNITION to "VOICE_RECOGNITION",
+                MediaRecorder.AudioSource.MIC to "MIC",
+            )
+        } else {
+            listOf(
+                MediaRecorder.AudioSource.VOICE_RECOGNITION to "VOICE_RECOGNITION",
+                MediaRecorder.AudioSource.MIC to "MIC",
+            )
+        }
 
         for ((audioSource, audioSourceName) in audioSources) {
             for (sampleRateHz in sampleRates) {
@@ -411,6 +427,7 @@ class MicrophoneAudioCapture(
         if (record == null || !released.compareAndSet(false, true)) {
             return
         }
+        releaseAudioEffects()
         try {
             if (record.recordingState == AudioRecord.RECORDSTATE_RECORDING) {
                 record.stop()
@@ -428,6 +445,139 @@ class MicrophoneAudioCapture(
         }
     }
 
+    private fun configureAudioEffects(record: AudioRecord): AudioEffectsState {
+        val audioSessionId = record.audioSessionId
+        val aecAvailable = AcousticEchoCanceler.isAvailable()
+        val noiseSuppressorAvailable = NoiseSuppressor.isAvailable()
+        val agcAvailable = AutomaticGainControl.isAvailable()
+        val aecEnabled = config.enableEchoCanceler &&
+            aecAvailable &&
+            enableAcousticEchoCanceler(audioSessionId)
+        val noiseSuppressorEnabled = config.enableNoiseSuppressor &&
+            noiseSuppressorAvailable &&
+            enableNoiseSuppressor(audioSessionId)
+        val agcEnabled = config.enableAutomaticGainControl &&
+            agcAvailable &&
+            enableAutomaticGainControl(audioSessionId)
+
+        return AudioEffectsState(
+            aecAvailable = aecAvailable,
+            aecEnabled = aecEnabled,
+            noiseSuppressorAvailable = noiseSuppressorAvailable,
+            noiseSuppressorEnabled = noiseSuppressorEnabled,
+            agcAvailable = agcAvailable,
+            agcEnabled = agcEnabled,
+        )
+    }
+
+    private fun emitAudioEffectStatuses(state: AudioEffectsState) {
+        if (state.aecEnabled) {
+            listener.onMicrophoneCaptureStatus(
+                LiveCaptureAudioContract.STATUS_MICROPHONE_ECHO_CANCELER_ENABLED,
+                "AcousticEchoCanceler enabled for microphone capture.",
+                state.fields(),
+            )
+        }
+        if (state.noiseSuppressorEnabled) {
+            listener.onMicrophoneCaptureStatus(
+                LiveCaptureAudioContract.STATUS_MICROPHONE_NOISE_SUPPRESSOR_ENABLED,
+                "NoiseSuppressor enabled for microphone capture.",
+                state.fields(),
+            )
+        }
+        if (state.agcEnabled) {
+            listener.onMicrophoneCaptureStatus(
+                LiveCaptureAudioContract.STATUS_MICROPHONE_AUTOMATIC_GAIN_CONTROL_ENABLED,
+                "AutomaticGainControl enabled for microphone capture.",
+                state.fields(),
+            )
+        }
+
+        val requestedUnavailableOrFailed =
+            (config.enableEchoCanceler && !state.aecEnabled) ||
+                (config.enableNoiseSuppressor && !state.noiseSuppressorEnabled) ||
+                (config.enableAutomaticGainControl && !state.agcEnabled)
+        if (requestedUnavailableOrFailed) {
+            listener.onMicrophoneCaptureStatus(
+                LiveCaptureAudioContract.STATUS_MICROPHONE_ECHO_CONTROL_UNAVAILABLE,
+                "One or more microphone echo-control effects were unavailable or could not be enabled.",
+                state.fields(),
+            )
+        }
+    }
+
+    private fun enableAcousticEchoCanceler(audioSessionId: Int): Boolean {
+        val effect = try {
+            AcousticEchoCanceler.create(audioSessionId)
+        } catch (_: RuntimeException) {
+            null
+        } ?: return false
+
+        return try {
+            effect.enabled = true
+            acousticEchoCanceler = effect
+            effect.enabled
+        } catch (_: RuntimeException) {
+            effect.release()
+            false
+        }
+    }
+
+    private fun enableNoiseSuppressor(audioSessionId: Int): Boolean {
+        val effect = try {
+            NoiseSuppressor.create(audioSessionId)
+        } catch (_: RuntimeException) {
+            null
+        } ?: return false
+
+        return try {
+            effect.enabled = true
+            noiseSuppressor = effect
+            effect.enabled
+        } catch (_: RuntimeException) {
+            effect.release()
+            false
+        }
+    }
+
+    private fun enableAutomaticGainControl(audioSessionId: Int): Boolean {
+        val effect = try {
+            AutomaticGainControl.create(audioSessionId)
+        } catch (_: RuntimeException) {
+            null
+        } ?: return false
+
+        return try {
+            effect.enabled = true
+            automaticGainControl = effect
+            effect.enabled
+        } catch (_: RuntimeException) {
+            effect.release()
+            false
+        }
+    }
+
+    private fun releaseAudioEffects() {
+        try {
+            acousticEchoCanceler?.release()
+        } catch (_: RuntimeException) {
+            // Best-effort effect release.
+        }
+        try {
+            noiseSuppressor?.release()
+        } catch (_: RuntimeException) {
+            // Best-effort effect release.
+        }
+        try {
+            automaticGainControl?.release()
+        } catch (_: RuntimeException) {
+            // Best-effort effect release.
+        }
+        acousticEchoCanceler = null
+        noiseSuppressor = null
+        automaticGainControl = null
+    }
+
     private fun emitStoppedOnce() {
         if (stoppedEmitted.compareAndSet(false, true)) {
             listener.onMicrophoneCaptureStopped()
@@ -442,6 +592,26 @@ class MicrophoneAudioCapture(
         val readBufferShorts: Int,
         val audioSourceName: String,
     )
+
+    private data class AudioEffectsState(
+        val aecAvailable: Boolean,
+        val aecEnabled: Boolean,
+        val noiseSuppressorAvailable: Boolean,
+        val noiseSuppressorEnabled: Boolean,
+        val agcAvailable: Boolean,
+        val agcEnabled: Boolean,
+    ) {
+        fun fields(): Map<String, Any?> {
+            return mapOf(
+                "microphoneAecAvailable" to aecAvailable,
+                "microphoneAecEnabled" to aecEnabled,
+                "microphoneNoiseSuppressorAvailable" to noiseSuppressorAvailable,
+                "microphoneNoiseSuppressorEnabled" to noiseSuppressorEnabled,
+                "microphoneAgcAvailable" to agcAvailable,
+                "microphoneAgcEnabled" to agcEnabled,
+            )
+        }
+    }
 
     private object CaptureThreadFactory : ThreadFactory {
         override fun newThread(runnable: Runnable): Thread {
