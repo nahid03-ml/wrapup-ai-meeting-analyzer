@@ -22,6 +22,13 @@ class MicrophoneAudioCapture(
             sampleRateHz: Int,
             audioSourceName: String,
         )
+        fun onMicrophonePcmFrame(
+            samples: ShortArray,
+            sampleCount: Int,
+            sampleRateHz: Int,
+            channelCount: Int,
+            audioSourceName: String,
+        ) = Unit
 
         fun onMicrophoneCaptureStatus(
             status: String,
@@ -286,6 +293,14 @@ class MicrophoneAudioCapture(
                 }
                 val nowMs = SystemClock.elapsedRealtime()
                 if (read > 0) {
+                    listener.onMicrophonePcmFrame(
+                        samples = buffer.copyOf(read),
+                        sampleCount = read,
+                        sampleRateHz = sampleRateHz,
+                        channelCount = channelCount,
+                        audioSourceName = audioSourceName,
+                    )
+
                     if (firstFrameReadAtMs == 0L) {
                         firstFrameReadAtMs = nowMs
                         listener.onMicrophoneCaptureStatus(

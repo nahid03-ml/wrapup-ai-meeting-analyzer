@@ -21,6 +21,13 @@ class SystemPlaybackAudioCapture(
         fun onPlaybackCaptureStarting()
         fun onPlaybackCaptureStarted(sampleRateHz: Int)
         fun onPlaybackAudioLevel(level: Double, isSilent: Boolean, sampleRateHz: Int)
+        fun onSystemPcmFrame(
+            samples: ShortArray,
+            sampleCount: Int,
+            sampleRateHz: Int,
+            channelCount: Int,
+        ) = Unit
+
         fun onPlaybackCaptureStatus(
             status: String,
             message: String? = null,
@@ -281,6 +288,13 @@ class SystemPlaybackAudioCapture(
                 }
                 val nowMs = SystemClock.elapsedRealtime()
                 if (read > 0) {
+                    listener.onSystemPcmFrame(
+                        samples = buffer.copyOf(read),
+                        sampleCount = read,
+                        sampleRateHz = sampleRateHz,
+                        channelCount = channelCount,
+                    )
+
                     if (firstFrameReadAtMs == 0L) {
                         firstFrameReadAtMs = nowMs
                         listener.onPlaybackCaptureStatus(

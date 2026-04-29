@@ -23,6 +23,7 @@ class LiveCaptureService : Service() {
     private var mediaProjection: MediaProjection? = null
     private var playbackCapture: SystemPlaybackAudioCapture? = null
     private var microphoneCapture: MicrophoneAudioCapture? = null
+    private var audioMixer: LiveAudioMixer? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -106,13 +107,8 @@ class LiveCaptureService : Service() {
         startId: Int,
     ) {
         if (config.captureSystemAudio && config.captureMicrophone) {
-            LiveCaptureStatusBus.emitWarning(
-                "Combined mic + system capture is deferred until Phase 6H.",
-                "combinedCaptureDeferred",
-            )
-        }
-
-        if (config.captureSystemAudio) {
+            startMixedCapture(intent, config, startId)
+        } else if (config.captureSystemAudio) {
             startPlaybackCapture(intent, startId)
         } else if (config.captureMicrophone) {
             startMicrophoneCapture(config, startId)
@@ -125,7 +121,11 @@ class LiveCaptureService : Service() {
         }
     }
 
-    private fun startPlaybackCapture(intent: Intent, startId: Int) {
+    private fun startPlaybackCapture(
+        intent: Intent,
+        startId: Int,
+        mixer: LiveAudioMixer? = null,
+    ) {
         val config = LiveCaptureConfig.fromIntent(intent)
         if (!config.captureSystemAudio) {
             LiveCaptureStatusBus.emitWarning(
@@ -213,6 +213,20 @@ class LiveCaptureService : Service() {
                     )
                 }
 
+                override fun onSystemPcmFrame(
+                    samples: ShortArray,
+                    sampleCount: Int,
+                    sampleRateHz: Int,
+                    channelCount: Int,
+                ) {
+                    mixer?.acceptSystemFrame(
+                        samples = samples,
+                        sampleCount = sampleCount,
+                        sampleRateHz = sampleRateHz,
+                        channelCount = channelCount,
+                    )
+                }
+
                 override fun onPlaybackCaptureStatus(
                     status: String,
                     message: String?,
@@ -242,7 +256,11 @@ class LiveCaptureService : Service() {
         }
     }
 
-    private fun startMicrophoneCapture(config: LiveCaptureConfig, startId: Int) {
+    private fun startMicrophoneCapture(
+        config: LiveCaptureConfig,
+        startId: Int,
+        mixer: LiveAudioMixer? = null,
+    ) {
         microphoneCapture = MicrophoneAudioCapture(
             config = config,
             listener = object : MicrophoneAudioCapture.Listener {
@@ -282,6 +300,22 @@ class LiveCaptureService : Service() {
                     )
                 }
 
+                override fun onMicrophonePcmFrame(
+                    samples: ShortArray,
+                    sampleCount: Int,
+                    sampleRateHz: Int,
+                    channelCount: Int,
+                    audioSourceName: String,
+                ) {
+                    mixer?.acceptMicrophoneFrame(
+                        samples = samples,
+                        sampleCount = sampleCount,
+                        sampleRateHz = sampleRateHz,
+                        channelCount = channelCount,
+                        audioSourceName = audioSourceName,
+                    )
+                }
+
                 override fun onMicrophoneCaptureStatus(
                     status: String,
                     message: String?,
@@ -311,6 +345,57 @@ class LiveCaptureService : Service() {
         }
     }
 
+    private fun startMixedCapture(intent: Intent, config: LiveCaptureConfig, startId: Int) {
+        val mixer = LiveAudioMixer(
+            config = config,
+            listener = object : LiveAudioMixer.Listener {
+                override fun onMixedCaptureStatus(
+                    status: String,
+                    message: String?,
+                    fields: Map<String, Any?>,
+                ) {
+                    LiveCaptureStatusBus.emitStatus(status, message, fields)
+                }
+
+                override fun onMixedAudioLevel(
+                    level: Double,
+                    isSilent: Boolean,
+                    clippingCount: Int,
+                    systemFramesBuffered: Int,
+                    micFramesBuffered: Int,
+                ) {
+                    LiveCaptureStatusBus.emitAudioLevel(
+                        level = level,
+                        isSilent = isSilent,
+                        source = LiveCaptureAudioContract.SOURCE_MIXED,
+                        sampleRateHz = LiveCaptureAudioContract.TARGET_SAMPLE_RATE_HZ,
+                        fields = mapOf(
+                            "channelCount" to LiveCaptureAudioContract.CHANNEL_COUNT,
+                            "clippingCount" to clippingCount,
+                            "systemFramesBuffered" to systemFramesBuffered,
+                            "micFramesBuffered" to micFramesBuffered,
+                        ),
+                    )
+                }
+
+                override fun onMixedCaptureWarning(message: String, code: String?) {
+                    LiveCaptureStatusBus.emitWarning(message, code)
+                }
+
+                override fun onMixedCaptureStopped() {
+                    LiveCaptureStatusBus.emitStatus(
+                        LiveCaptureAudioContract.STATUS_MIXED_CAPTURE_STOPPED,
+                        "Local native mixer stopped.",
+                    )
+                }
+            },
+        )
+        audioMixer = mixer
+        mixer.start()
+        startPlaybackCapture(intent = intent, startId = startId, mixer = mixer)
+        startMicrophoneCapture(config = config, startId = startId, mixer = mixer)
+    }
+
     private fun stopCaptureAndService(
         reason: String,
         startId: Int? = null,
@@ -330,6 +415,10 @@ class LiveCaptureService : Service() {
             val micCapture = microphoneCapture
             microphoneCapture = null
             micCapture?.stop()
+
+            val mixer = audioMixer
+            audioMixer = null
+            mixer?.stop()
 
             val projection = mediaProjection
             mediaProjection = null
@@ -371,7 +460,8 @@ class LiveCaptureService : Service() {
             !config.captureSystemAudio && config.captureMicrophone ->
                 ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
             config.captureSystemAudio && config.captureMicrophone ->
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION or
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
             else -> ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
         }
     }
@@ -380,7 +470,7 @@ class LiveCaptureService : Service() {
         return when {
             config.captureSystemAudio && !config.captureMicrophone -> "mediaProjection"
             !config.captureSystemAudio && config.captureMicrophone -> "microphone"
-            config.captureSystemAudio && config.captureMicrophone -> "mediaProjection"
+            config.captureSystemAudio && config.captureMicrophone -> "mediaProjection|microphone"
             else -> "mediaProjection"
         }
     }
@@ -391,6 +481,8 @@ class LiveCaptureService : Service() {
                 "WrapUp AI is checking Android system audio capture."
             !config.captureSystemAudio && config.captureMicrophone ->
                 "WrapUp AI is checking Android microphone capture."
+            config.captureSystemAudio && config.captureMicrophone ->
+                "WrapUp AI is checking Android mixed audio capture."
             else -> "WrapUp AI is checking Android live capture."
         }
     }

@@ -69,7 +69,7 @@ class _AndroidCaptureSmokeTestPanelState
           ),
           const SizedBox(height: AppSpacing.sm),
           Text(
-            'These proofs check Android system playback and microphone capture separately. They do not mix audio or stream transcription yet.',
+            'These proofs check Android system playback, microphone capture, and local native mixing. They do not stream transcription yet.',
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
               color: AppColors.textSecondary,
               height: 1.35,
@@ -165,6 +165,43 @@ class _AndroidCaptureSmokeTestPanelState
             level: state.micAudioLevel,
             isSilent: state.isMicSilent,
           ),
+          const SizedBox(height: AppSpacing.md),
+          _SectionTitle(text: 'Mixed audio proof'),
+          Text(
+            'This checks local native mixing only. It does not stream audio to transcription yet.',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: AppColors.textMuted,
+              height: 1.35,
+            ),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          _StatusRow(label: 'Mixed capture', value: state.mixedCaptureStatus),
+          _StatusRow(label: 'Mixed read', value: state.mixedReadStatus),
+          if (state.mixedAudioSampleRateHz != null)
+            _StatusRow(
+              label: 'Mixed sample rate',
+              value: '${state.mixedAudioSampleRateHz} Hz',
+            ),
+          _StatusRow(
+            label: 'Clipping count',
+            value: state.mixedClippingCount.toString(),
+          ),
+          if (state.mixedSystemFramesBuffered != null)
+            _StatusRow(
+              label: 'System frames buffered',
+              value: state.mixedSystemFramesBuffered.toString(),
+            ),
+          if (state.mixedMicFramesBuffered != null)
+            _StatusRow(
+              label: 'Mic frames buffered',
+              value: state.mixedMicFramesBuffered.toString(),
+            ),
+          const SizedBox(height: AppSpacing.sm),
+          _AudioLevelMeter(
+            label: 'Mixed level',
+            level: state.mixedAudioLevel,
+            isSilent: state.isMixedSilent,
+          ),
           const SizedBox(height: AppSpacing.sm),
           Text(
             state.versionHelperText,
@@ -181,6 +218,14 @@ class _AndroidCaptureSmokeTestPanelState
               icon: Icons.warning_amber_outlined,
               color: AppColors.warning,
               text: state.warnings.first,
+            ),
+          ],
+          if (state.mixedWarnings.isNotEmpty) ...[
+            const SizedBox(height: AppSpacing.sm),
+            _MessageBox(
+              icon: Icons.graphic_eq_outlined,
+              color: AppColors.warning,
+              text: state.mixedWarnings.first,
             ),
           ],
           if (state.errorMessage != null) ...[
@@ -210,6 +255,16 @@ class _AndroidCaptureSmokeTestPanelState
                   state.canRunMicrophone ? controller.runMicrophoneTest : null,
               icon: const Icon(Icons.mic_outlined),
               label: const Text('Test microphone capture'),
+            ),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              onPressed:
+                  state.canRunMixed ? controller.runMixedAudioTest : null,
+              icon: const Icon(Icons.join_inner_outlined),
+              label: const Text('Test mixed audio capture'),
             ),
           ),
           const SizedBox(height: AppSpacing.sm),

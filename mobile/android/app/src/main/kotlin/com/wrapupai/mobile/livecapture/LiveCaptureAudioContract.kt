@@ -8,6 +8,7 @@ object LiveCaptureAudioContract {
 
     const val SOURCE_SYSTEM_PLAYBACK = "systemPlayback"
     const val SOURCE_MICROPHONE = "microphone"
+    const val SOURCE_MIXED = "mixed"
 
     const val LEVEL_EMIT_INTERVAL_MS = 250L
     const val NO_DATA_STATUS_INTERVAL_MS = 2000L
@@ -44,10 +45,24 @@ object LiveCaptureAudioContract {
     const val STATUS_PLAYBACK_READ_STOPPED = "playbackReadStopped"
     const val STATUS_DEVICE_AUDIO_DETECTED = "deviceAudioDetected"
 
+    const val STATUS_MIXED_CAPTURE_STARTING = "mixedCaptureStarting"
+    const val STATUS_MIXED_CAPTURE_STARTED = "mixedCaptureStarted"
+    const val STATUS_MIXED_CAPTURE_STOPPED = "mixedCaptureStopped"
+    const val STATUS_MIXED_READ_STARTED = "mixedReadStarted"
+    const val STATUS_MIXED_OUTPUT_FRAME_READY = "mixedOutputFrameReady"
+    const val STATUS_MIXED_AUDIO_DETECTED = "mixedAudioDetected"
+    const val STATUS_MIXED_AUDIO_NO_INPUT = "mixedAudioNoInput"
+
     const val WARNING_SYSTEM_PLAYBACK_SILENT = "systemPlaybackSilent"
     const val WARNING_PLAYBACK_CAPTURE_NO_FRAMES = "playbackCaptureNoFrames"
     const val WARNING_MICROPHONE_SILENT = "microphoneSilent"
     const val WARNING_MICROPHONE_CAPTURE_NO_FRAMES = "microphoneCaptureNoFrames"
+    const val WARNING_MIXED_AUDIO_SILENT = "mixedAudioSilent"
+    const val WARNING_MIXED_AUDIO_FRAME_DROP = "mixedAudioFrameDrop"
+    const val WARNING_MIXED_AUDIO_CLIPPING = "mixedAudioClipping"
+    const val WARNING_MIXED_AUDIO_ONLY_SYSTEM_ACTIVE = "mixedAudioOnlySystemActive"
+    const val WARNING_MIXED_AUDIO_ONLY_MICROPHONE_ACTIVE =
+        "mixedAudioOnlyMicrophoneActive"
 
     const val ERROR_PLAYBACK_CAPTURE_UNSUPPORTED = "playbackCaptureUnsupported"
     const val ERROR_PROJECTION_UNAVAILABLE = "projectionUnavailable"

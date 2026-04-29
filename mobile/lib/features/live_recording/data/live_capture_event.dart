@@ -36,6 +36,10 @@ class LiveCaptureEvent {
     this.readResult,
     this.recordingState,
     this.audioSource,
+    this.clippingCount,
+    this.systemFramesBuffered,
+    this.micFramesBuffered,
+    this.droppedFrames,
   });
 
   final LiveCaptureEventType eventType;
@@ -52,6 +56,10 @@ class LiveCaptureEvent {
   final int? readResult;
   final int? recordingState;
   final String? audioSource;
+  final int? clippingCount;
+  final int? systemFramesBuffered;
+  final int? micFramesBuffered;
+  final int? droppedFrames;
 
   String get type => eventType.wireValue;
 
@@ -74,6 +82,10 @@ class LiveCaptureEvent {
       readResult: _intOrNull(map['readResult']),
       recordingState: _intOrNull(map['recordingState']),
       audioSource: _stringOrNull(map['audioSource']),
+      clippingCount: _intOrNull(map['clippingCount']),
+      systemFramesBuffered: _intOrNull(map['systemFramesBuffered']),
+      micFramesBuffered: _intOrNull(map['micFramesBuffered']),
+      droppedFrames: _intOrNull(map['droppedFrames']),
     );
   }
 

@@ -50,6 +50,15 @@ class AndroidCaptureSmokeTestState {
     this.isMicSilent = true,
     this.micAudioSampleRateHz,
     this.micAudioSource,
+    this.mixedCaptureStatus = 'not started',
+    this.mixedReadStatus = 'not started',
+    this.mixedAudioLevel = 0.0,
+    this.isMixedSilent = true,
+    this.mixedAudioSampleRateHz,
+    this.mixedClippingCount = 0,
+    this.mixedSystemFramesBuffered,
+    this.mixedMicFramesBuffered,
+    this.mixedWarnings = const <String>[],
     this.systemAudioLevel = 0.0,
     this.isSystemAudioSilent = true,
     this.systemAudioSampleRateHz,
@@ -85,6 +94,15 @@ class AndroidCaptureSmokeTestState {
   final bool isMicSilent;
   final int? micAudioSampleRateHz;
   final String? micAudioSource;
+  final String mixedCaptureStatus;
+  final String mixedReadStatus;
+  final double mixedAudioLevel;
+  final bool isMixedSilent;
+  final int? mixedAudioSampleRateHz;
+  final int mixedClippingCount;
+  final int? mixedSystemFramesBuffered;
+  final int? mixedMicFramesBuffered;
+  final List<String> mixedWarnings;
   final double systemAudioLevel;
   final bool isSystemAudioSilent;
   final int? systemAudioSampleRateHz;
@@ -104,6 +122,8 @@ class AndroidCaptureSmokeTestState {
   bool get canRunSystemPlayback => canRun;
 
   bool get canRunMicrophone => canRun;
+
+  bool get canRunMixed => canRun;
 
   bool get canStop =>
       isServiceRunning ||
@@ -177,6 +197,18 @@ class AndroidCaptureSmokeTestState {
     bool clearMicAudioSampleRateHz = false,
     String? micAudioSource,
     bool clearMicAudioSource = false,
+    String? mixedCaptureStatus,
+    String? mixedReadStatus,
+    double? mixedAudioLevel,
+    bool? isMixedSilent,
+    int? mixedAudioSampleRateHz,
+    bool clearMixedAudioSampleRateHz = false,
+    int? mixedClippingCount,
+    int? mixedSystemFramesBuffered,
+    bool clearMixedSystemFramesBuffered = false,
+    int? mixedMicFramesBuffered,
+    bool clearMixedMicFramesBuffered = false,
+    List<String>? mixedWarnings,
     double? systemAudioLevel,
     bool? isSystemAudioSilent,
     int? systemAudioSampleRateHz,
@@ -233,6 +265,21 @@ class AndroidCaptureSmokeTestState {
       micAudioSource: clearMicAudioSource
           ? null
           : micAudioSource ?? this.micAudioSource,
+      mixedCaptureStatus: mixedCaptureStatus ?? this.mixedCaptureStatus,
+      mixedReadStatus: mixedReadStatus ?? this.mixedReadStatus,
+      mixedAudioLevel: mixedAudioLevel ?? this.mixedAudioLevel,
+      isMixedSilent: isMixedSilent ?? this.isMixedSilent,
+      mixedAudioSampleRateHz: clearMixedAudioSampleRateHz
+          ? null
+          : mixedAudioSampleRateHz ?? this.mixedAudioSampleRateHz,
+      mixedClippingCount: mixedClippingCount ?? this.mixedClippingCount,
+      mixedSystemFramesBuffered: clearMixedSystemFramesBuffered
+          ? null
+          : mixedSystemFramesBuffered ?? this.mixedSystemFramesBuffered,
+      mixedMicFramesBuffered: clearMixedMicFramesBuffered
+          ? null
+          : mixedMicFramesBuffered ?? this.mixedMicFramesBuffered,
+      mixedWarnings: mixedWarnings ?? this.mixedWarnings,
       systemAudioLevel: systemAudioLevel ?? this.systemAudioLevel,
       isSystemAudioSilent: isSystemAudioSilent ?? this.isSystemAudioSilent,
       systemAudioSampleRateHz: clearSystemAudioSampleRateHz

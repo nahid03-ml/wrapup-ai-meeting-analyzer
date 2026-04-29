@@ -187,13 +187,6 @@ class LiveCaptureChannels(
         }
 
         val config = LiveCaptureConfig.fromArguments(arguments)
-        if (config.captureSystemAudio && config.captureMicrophone) {
-            LiveCaptureStatusBus.emitWarning(
-                "Combined mic + system capture is deferred until Phase 6H.",
-                "combinedCaptureDeferred",
-            )
-        }
-
         val resultCode = projectionResultCode
         val data = projectionData
         if (config.captureSystemAudio && (resultCode == null || data == null)) {

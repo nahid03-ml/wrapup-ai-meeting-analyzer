@@ -66,6 +66,14 @@ class AndroidCaptureSmokeTestController
     );
   }
 
+  Future<void> runMixedAudioTest() async {
+    await _runCaptureProof(
+      captureSystemAudio: true,
+      captureMicrophone: true,
+      requiresProjection: true,
+    );
+  }
+
   Future<void> _runCaptureProof({
     required bool captureSystemAudio,
     required bool captureMicrophone,
@@ -189,6 +197,23 @@ class AndroidCaptureSmokeTestController
         isMicSilent: captureMicrophone ? true : state.isMicSilent,
         clearMicAudioSampleRateHz: captureMicrophone,
         clearMicAudioSource: captureMicrophone,
+        mixedCaptureStatus: captureSystemAudio && captureMicrophone
+            ? 'not started'
+            : state.mixedCaptureStatus,
+        mixedReadStatus: captureSystemAudio && captureMicrophone
+            ? 'not started'
+            : state.mixedReadStatus,
+        mixedAudioLevel:
+            captureSystemAudio && captureMicrophone ? 0.0 : state.mixedAudioLevel,
+        isMixedSilent:
+            captureSystemAudio && captureMicrophone ? true : state.isMixedSilent,
+        clearMixedAudioSampleRateHz: captureSystemAudio && captureMicrophone,
+        mixedClippingCount:
+            captureSystemAudio && captureMicrophone ? 0 : state.mixedClippingCount,
+        clearMixedSystemFramesBuffered: captureSystemAudio && captureMicrophone,
+        clearMixedMicFramesBuffered: captureSystemAudio && captureMicrophone,
+        mixedWarnings:
+            captureSystemAudio && captureMicrophone ? const <String>[] : state.mixedWarnings,
         systemAudioLevel: captureSystemAudio ? 0.0 : state.systemAudioLevel,
         isSystemAudioSilent:
             captureSystemAudio ? true : state.isSystemAudioSilent,
@@ -233,6 +258,8 @@ class AndroidCaptureSmokeTestController
         playbackReadStatus: 'stop requested',
         micCaptureStatus: 'stopping',
         micReadStatus: 'stop requested',
+        mixedCaptureStatus: 'stopping',
+        mixedReadStatus: 'stop requested',
         clearError: true,
       );
       await _capturePlatform.stopCapture();
@@ -282,6 +309,13 @@ class AndroidCaptureSmokeTestController
         final isNoFramesWarning = event.code == 'playbackCaptureNoFrames';
         final isMicNoFramesWarning = event.code == 'microphoneCaptureNoFrames';
         final isMicSilentWarning = event.code == 'microphoneSilent';
+        final isMixedWarning = _isMixedWarning(event.code);
+        final mixedWarnings = isMixedWarning
+            ? List<String>.unmodifiable(<String>[
+                event.message ?? 'Mixed audio warning.',
+                ...state.mixedWarnings,
+              ].take(4))
+            : state.mixedWarnings;
         state = state.copyWith(
           systemPlaybackStatus: event.code == 'systemPlaybackSilent'
               ? 'silent'
@@ -298,6 +332,15 @@ class AndroidCaptureSmokeTestController
           micReadStatus: isMicNoFramesWarning
               ? 'no frames read'
               : state.micReadStatus,
+          mixedCaptureStatus: event.code == 'mixedAudioSilent'
+              ? 'silent'
+              : state.mixedCaptureStatus,
+          isMixedSilent:
+              event.code == 'mixedAudioSilent' ? true : state.isMixedSilent,
+          mixedReadStatus: event.code == 'mixedAudioFrameDrop'
+              ? 'dropping old frames'
+              : state.mixedReadStatus,
+          mixedWarnings: mixedWarnings,
           warnings: List<String>.unmodifiable(<String>[
             event.message ?? 'Android capture warning.',
             ...state.warnings,
@@ -337,6 +380,27 @@ class AndroidCaptureSmokeTestController
         micAudioSource: event.audioSource,
         micCaptureStatus: isSilent ? 'silent' : 'audio detected',
         micReadStatus: isSilent ? 'reading silent frames' : 'reading audio',
+        events: events,
+      );
+      return;
+    }
+
+    if (event.source == 'mixed') {
+      final level = (event.level ?? 0.0).clamp(0.0, 1.0).toDouble();
+      final isSilent = event.isSilent ?? level < 0.01;
+      state = state.copyWith(
+        status: state.isServiceRunning
+            ? AndroidCaptureSmokeTestStatus.playbackCaptureRunning
+            : state.status,
+        mixedAudioLevel: level,
+        isMixedSilent: isSilent,
+        mixedAudioSampleRateHz: event.sampleRateHz,
+        mixedClippingCount:
+            event.clippingCount ?? state.mixedClippingCount,
+        mixedSystemFramesBuffered: event.systemFramesBuffered,
+        mixedMicFramesBuffered: event.micFramesBuffered,
+        mixedCaptureStatus: isSilent ? 'silent' : 'audio detected',
+        mixedReadStatus: isSilent ? 'mixing silent frames' : 'mixing audio',
         events: events,
       );
       return;
@@ -423,6 +487,8 @@ class AndroidCaptureSmokeTestController
           playbackReadStatus: 'stop requested',
           micCaptureStatus: 'stopping',
           micReadStatus: 'stop requested',
+          mixedCaptureStatus: 'stopping',
+          mixedReadStatus: 'stop requested',
           statusText:
               event.message ?? 'Stopping Android live capture foreground service.',
           events: events,
@@ -671,6 +737,91 @@ class AndroidCaptureSmokeTestController
           statusText: event.message ?? 'Microphone capture stopped.',
           events: events,
         );
+      case 'mixedCaptureStarting':
+        state = state.copyWith(
+          status: AndroidCaptureSmokeTestStatus.playbackCaptureStarting,
+          isServiceRunning: true,
+          serviceStatus: 'running',
+          mixedCaptureStatus: 'starting',
+          statusText:
+              event.message ?? 'Starting local native mic and system mixer.',
+          events: events,
+          clearError: true,
+        );
+      case 'mixedCaptureStarted':
+        state = state.copyWith(
+          status: AndroidCaptureSmokeTestStatus.playbackCaptureRunning,
+          isServiceRunning: true,
+          serviceStatus: 'running',
+          mixedCaptureStatus: 'running',
+          mixedAudioSampleRateHz: event.sampleRateHz,
+          mixedSystemFramesBuffered: event.systemFramesBuffered,
+          mixedMicFramesBuffered: event.micFramesBuffered,
+          statusText:
+              'This checks local native mixing only. It does not stream audio to transcription yet.',
+          events: events,
+          clearError: true,
+        );
+      case 'mixedReadStarted':
+        state = state.copyWith(
+          status: AndroidCaptureSmokeTestStatus.playbackCaptureRunning,
+          isServiceRunning: true,
+          serviceStatus: 'running',
+          mixedReadStatus: 'waiting for frames',
+          mixedAudioSampleRateHz: event.sampleRateHz,
+          statusText: event.message ?? 'Local native mixer loop started.',
+          events: events,
+          clearError: true,
+        );
+      case 'mixedOutputFrameReady':
+        state = state.copyWith(
+          status: AndroidCaptureSmokeTestStatus.playbackCaptureRunning,
+          isServiceRunning: true,
+          serviceStatus: 'running',
+          mixedCaptureStatus: 'output ready',
+          mixedReadStatus: 'output frame ready',
+          mixedAudioSampleRateHz: event.sampleRateHz,
+          mixedClippingCount:
+              event.clippingCount ?? state.mixedClippingCount,
+          mixedSystemFramesBuffered: event.systemFramesBuffered,
+          mixedMicFramesBuffered: event.micFramesBuffered,
+          statusText: event.message ?? 'Mixed PCM output frame is ready.',
+          events: events,
+          clearError: true,
+        );
+      case 'mixedAudioDetected':
+        state = state.copyWith(
+          status: AndroidCaptureSmokeTestStatus.playbackCaptureRunning,
+          isServiceRunning: true,
+          serviceStatus: 'running',
+          mixedCaptureStatus: 'audio detected',
+          isMixedSilent: false,
+          mixedSystemFramesBuffered: event.systemFramesBuffered,
+          mixedMicFramesBuffered: event.micFramesBuffered,
+          statusText: event.message ?? 'Mixed audio detected.',
+          events: events,
+          clearError: true,
+        );
+      case 'mixedAudioNoInput':
+        state = state.copyWith(
+          status: AndroidCaptureSmokeTestStatus.playbackCaptureRunning,
+          isServiceRunning: true,
+          serviceStatus: 'running',
+          mixedReadStatus: 'waiting for input',
+          mixedSystemFramesBuffered: event.systemFramesBuffered,
+          mixedMicFramesBuffered: event.micFramesBuffered,
+          statusText:
+              event.message ?? 'Mixer is waiting for system or microphone frames.',
+          events: events,
+          clearError: true,
+        );
+      case 'mixedCaptureStopped':
+        state = state.copyWith(
+          mixedCaptureStatus: 'stopped',
+          mixedReadStatus: 'stopped',
+          statusText: event.message ?? 'Local native mixer stopped.',
+          events: events,
+        );
       case 'playbackReadStopped':
         state = state.copyWith(
           playbackReadStatus: 'stopped',
@@ -745,6 +896,8 @@ class AndroidCaptureSmokeTestController
         playbackReadStatus: 'stopped',
         micCaptureStatus: 'stopped',
         micReadStatus: 'stopped',
+        mixedCaptureStatus: 'stopped',
+        mixedReadStatus: 'stopped',
         statusText: warning,
         warnings: List<String>.unmodifiable(<String>[
           warning,
@@ -766,6 +919,8 @@ class AndroidCaptureSmokeTestController
       playbackReadStatus: 'stopped',
       micCaptureStatus: 'stopped',
       micReadStatus: 'stopped',
+      mixedCaptureStatus: 'stopped',
+      mixedReadStatus: 'stopped',
       statusText: 'Android live capture foreground service stopped.',
       events: events,
     );
@@ -784,6 +939,17 @@ String _permissionLabel(PermissionStatus status) {
 String _messageForError(Object error) {
   final message = error.toString().trim();
   return message.isEmpty ? 'Android capture smoke test failed.' : message;
+}
+
+bool _isMixedWarning(String? code) {
+  return switch (code) {
+    'mixedAudioSilent' ||
+    'mixedAudioFrameDrop' ||
+    'mixedAudioClipping' ||
+    'mixedAudioOnlySystemActive' ||
+    'mixedAudioOnlyMicrophoneActive' => true,
+    _ => false,
+  };
 }
 
 String? _audioRecordDetails(LiveCaptureEvent event) {
