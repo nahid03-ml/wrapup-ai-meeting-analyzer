@@ -16,6 +16,8 @@ sealed class LiveRecordingState {
     this.audioLevel = 0,
     this.hasAudioLevel = false,
     this.isAudioDetected = false,
+    this.isPaused = false,
+    this.pcmChunksSkippedWhilePaused = 0,
   });
 
   final String? meetingId;
@@ -32,6 +34,8 @@ sealed class LiveRecordingState {
   final double audioLevel;
   final bool hasAudioLevel;
   final bool isAudioDetected;
+  final bool isPaused;
+  final int pcmChunksSkippedWhilePaused;
 }
 
 class LiveIdle extends LiveRecordingState {
@@ -58,6 +62,8 @@ class LiveConnecting extends LiveRecordingState {
     super.audioLevel,
     super.hasAudioLevel,
     super.isAudioDetected,
+    super.isPaused,
+    super.pcmChunksSkippedWhilePaused,
   });
 }
 
@@ -77,6 +83,8 @@ class LiveReadyNoCapture extends LiveRecordingState {
     super.audioLevel,
     super.hasAudioLevel,
     super.isAudioDetected,
+    super.isPaused,
+    super.pcmChunksSkippedWhilePaused,
   });
 }
 
@@ -96,6 +104,8 @@ class LiveStartingCapture extends LiveRecordingState {
     super.audioLevel,
     super.hasAudioLevel,
     super.isAudioDetected,
+    super.isPaused,
+    super.pcmChunksSkippedWhilePaused,
   });
 }
 
@@ -115,6 +125,48 @@ class LiveStreaming extends LiveRecordingState {
     super.audioLevel,
     super.hasAudioLevel,
     super.isAudioDetected,
+    super.isPaused,
+    super.pcmChunksSkippedWhilePaused,
+  });
+}
+
+class LivePaused extends LiveRecordingState {
+  const LivePaused({
+    required String super.meetingId,
+    required String super.sessionId,
+    required String super.languageCode,
+    super.transcriptLines,
+    super.messages,
+    super.warnings,
+    super.webSocketStatus = 'streaming',
+    super.captureStatus = 'streaming',
+    super.pcmChunksSent,
+    super.pcmChunksDropped,
+    super.lastPcmChunkBytes,
+    super.audioLevel,
+    super.hasAudioLevel,
+    super.isAudioDetected,
+    super.pcmChunksSkippedWhilePaused,
+  }) : super(isPaused: true);
+}
+
+class LiveResuming extends LiveRecordingState {
+  const LiveResuming({
+    required String super.meetingId,
+    required String super.sessionId,
+    required String super.languageCode,
+    super.transcriptLines,
+    super.messages,
+    super.warnings,
+    super.webSocketStatus = 'streaming',
+    super.captureStatus = 'streaming',
+    super.pcmChunksSent,
+    super.pcmChunksDropped,
+    super.lastPcmChunkBytes,
+    super.audioLevel,
+    super.hasAudioLevel,
+    super.isAudioDetected,
+    super.pcmChunksSkippedWhilePaused,
   });
 }
 
@@ -134,6 +186,8 @@ class LiveStopping extends LiveRecordingState {
     super.audioLevel,
     super.hasAudioLevel,
     super.isAudioDetected,
+    super.isPaused,
+    super.pcmChunksSkippedWhilePaused,
   });
 }
 
@@ -153,6 +207,8 @@ class LiveDone extends LiveRecordingState {
     super.audioLevel,
     super.hasAudioLevel,
     super.isAudioDetected,
+    super.isPaused,
+    super.pcmChunksSkippedWhilePaused,
     this.finalTranscript = '',
     this.usedGroqFallback = false,
   });
@@ -179,6 +235,8 @@ class LiveFailed extends LiveRecordingState {
     super.audioLevel,
     super.hasAudioLevel,
     super.isAudioDetected,
+    super.isPaused,
+    super.pcmChunksSkippedWhilePaused,
   });
 
   final String errorMessage;

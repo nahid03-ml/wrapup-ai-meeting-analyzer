@@ -102,7 +102,13 @@ class _LiveTranscriptionBetaPanelState
               state: state,
               meetingName: _displayMeetingName(_meetingNameController.text),
               languageName: _languageName(state.languageCode ?? _languageCode),
-              onStop: state is LiveStreaming || state is LiveStartingCapture
+              onPause: state is LiveStreaming ? controller.pause : null,
+              onResume: state is LivePaused ? controller.resume : null,
+              onStop:
+                  state is LiveStreaming ||
+                      state is LiveStartingCapture ||
+                      state is LivePaused ||
+                      state is LiveResuming
                   ? controller.stop
                   : null,
               onOpenMeeting: state is LiveDone && state.meetingId != null
@@ -289,6 +295,8 @@ class _LiveCaptureStatusCard extends StatelessWidget {
     required this.state,
     required this.meetingName,
     required this.languageName,
+    required this.onPause,
+    required this.onResume,
     required this.onStop,
     required this.onOpenMeeting,
   });
@@ -296,6 +304,8 @@ class _LiveCaptureStatusCard extends StatelessWidget {
   final LiveRecordingState state;
   final String meetingName;
   final String languageName;
+  final VoidCallback? onPause;
+  final VoidCallback? onResume;
   final VoidCallback? onStop;
   final VoidCallback? onOpenMeeting;
 
@@ -354,17 +364,38 @@ class _LiveCaptureStatusCard extends StatelessWidget {
                 label: const Text('Open meeting'),
               ),
             )
-          else
+          else ...[
+            if (state is LivePaused)
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: onResume,
+                  icon: const Icon(Icons.play_arrow_outlined),
+                  label: const Text('Resume'),
+                ),
+              )
+            else if (state is LiveStreaming)
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.tonalIcon(
+                  onPressed: onPause,
+                  icon: const Icon(Icons.pause_outlined),
+                  label: const Text('Pause'),
+                ),
+              ),
+            if (state is LivePaused || state is LiveStreaming)
+              const SizedBox(height: AppSpacing.sm),
             SizedBox(
               width: double.infinity,
               child: OutlinedButton.icon(
-                onPressed: onStop,
+                onPressed: state is LiveStopping ? null : onStop,
                 icon: const Icon(Icons.stop_circle_outlined),
                 label: Text(
                   state is LiveStopping ? 'Stopping safely...' : 'Stop capture',
                 ),
               ),
             ),
+          ],
         ],
       ),
     );
@@ -383,6 +414,8 @@ class _StatusHeader extends StatelessWidget {
         ? Icons.check_circle_outline
         : state is LiveStopping
         ? Icons.hourglass_top_outlined
+        : state is LivePaused
+        ? Icons.pause_circle_outline
         : Icons.graphic_eq_outlined;
 
     return Row(
@@ -425,8 +458,13 @@ class _AudioLevelMeter extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final hasLevel = state.hasAudioLevel;
-    final level = hasLevel ? state.audioLevel.clamp(0.0, 1.0).toDouble() : 0.0;
-    final detected = hasLevel && state.isAudioDetected;
+    final paused = state is LivePaused || state.isPaused;
+    final level = paused
+        ? 0.0
+        : hasLevel
+        ? state.audioLevel.clamp(0.0, 1.0).toDouble()
+        : 0.0;
+    final detected = !paused && hasLevel && state.isAudioDetected;
     final color = detected ? AppColors.success : AppColors.warning;
 
     return Column(
@@ -444,7 +482,11 @@ class _AudioLevelMeter extends StatelessWidget {
               ),
             ),
             Text(
-              detected ? 'Audio detected' : 'No audio detected yet',
+              paused
+                  ? 'Audio not being transcribed'
+                  : detected
+                  ? 'Audio detected'
+                  : 'No audio detected yet',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                 color: detected ? AppColors.success : AppColors.textSecondary,
                 fontWeight: FontWeight.w700,
@@ -585,6 +627,7 @@ class _AdvancedDiagnosticsCard extends StatelessWidget {
                 value: state.webSocketStatus,
               ),
               _StatusRow(label: 'Capture status', value: state.captureStatus),
+              _StatusRow(label: 'Paused', value: state.isPaused ? 'yes' : 'no'),
               _StatusRow(
                 label: 'PCM chunks sent',
                 value: '${state.pcmChunksSent}',
@@ -592,6 +635,10 @@ class _AdvancedDiagnosticsCard extends StatelessWidget {
               _StatusRow(
                 label: 'PCM chunks dropped',
                 value: '${state.pcmChunksDropped}',
+              ),
+              _StatusRow(
+                label: 'PCM chunks skipped while paused',
+                value: '${state.pcmChunksSkippedWhilePaused}',
               ),
               _StatusRow(
                 label: 'Last PCM chunk bytes',
@@ -809,6 +856,8 @@ String _languageName(String? languageCode) {
 String _statusTitle(LiveRecordingState state) {
   if (state is LiveDone) return 'Transcript saved';
   if (state is LiveStopping) return 'Stopping safely...';
+  if (state is LiveResuming) return 'Resuming meeting capture...';
+  if (state is LivePaused) return 'Meeting capture paused.';
   if (state is LiveStreaming) return 'Listening to meeting audio...';
   if (state is LiveFailed) return 'Capture stopped';
   return 'Preparing capture...';
@@ -817,6 +866,10 @@ String _statusTitle(LiveRecordingState state) {
 String _statusDescription(LiveRecordingState state) {
   if (state is LiveDone) return 'Transcript is ready.';
   if (state is LiveStopping) return 'Preparing your transcript...';
+  if (state is LiveResuming) return 'Live transcript will continue here.';
+  if (state is LivePaused) {
+    return 'Audio is not being transcribed while paused.';
+  }
   if (state is LiveStreaming) return 'Live transcript is being created...';
   if (state is LiveStartingCapture) {
     return 'Android may ask for microphone and system audio permission before capture starts.';
@@ -828,10 +881,12 @@ String _statusDescription(LiveRecordingState state) {
 Color _statusColor(LiveRecordingState state) {
   if (state is LiveDone || state is LiveStreaming) return AppColors.success;
   if (state is LiveFailed) return AppColors.destructive;
+  if (state is LivePaused) return AppColors.cyan;
   if (state is LiveCreatingSession ||
       state is LiveConnecting ||
       state is LiveReadyNoCapture ||
       state is LiveStartingCapture ||
+      state is LiveResuming ||
       state is LiveStopping) {
     return AppColors.warning;
   }
@@ -849,7 +904,7 @@ String _previewTranscript(String transcript) {
 String? _userFacingWarning(String warning) {
   final lower = warning.toLowerCase();
   if (lower.contains('background')) {
-    return 'Live capture continued while the app was in the background.';
+    return 'Live capture continued in the background.';
   }
   if (lower.contains('finalizing') || lower.contains('final processing')) {
     return 'Transcript is still being prepared. You can open the meeting shortly.';
@@ -864,6 +919,9 @@ String _userFacingError(String message) {
   final lower = message.toLowerCase();
   if (lower.contains('meeting title') || lower.contains('meeting name')) {
     return 'Meeting name is required.';
+  }
+  if (lower.contains('lost connection')) {
+    return 'Meeting capture lost connection. Please start again.';
   }
   if (lower.contains('microphone')) {
     return 'Microphone permission is required to capture your voice.';

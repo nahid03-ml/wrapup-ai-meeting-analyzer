@@ -23,8 +23,7 @@ import 'live_recording_state.dart';
 import 'live_transcript_line.dart';
 
 const kLiveStopDoneTimeout = Duration(seconds: 30);
-const _backgroundWarning =
-    'Live capture continued while the app was in the background.';
+const _backgroundWarning = 'Live capture continued in the background.';
 
 class LiveRecordingController extends Notifier<LiveRecordingState>
     with WidgetsBindingObserver {
@@ -46,6 +45,7 @@ class LiveRecordingController extends Notifier<LiveRecordingState>
   String _captureStatus = 'idle';
   int _pcmChunksSent = 0;
   int _pcmChunksDropped = 0;
+  int _pcmChunksSkippedWhilePaused = 0;
   int _lastPcmChunkBytes = 0;
   double _audioLevel = 0;
   bool _hasAudioLevel = false;
@@ -55,6 +55,7 @@ class LiveRecordingController extends Notifier<LiveRecordingState>
   bool _stopMessageSent = false;
   bool _captureStopRequested = false;
   bool _failureCleanupStarted = false;
+  bool _isPaused = false;
   bool _lifecycleObserverAttached = false;
   bool _wasStreamingInBackground = false;
 
@@ -92,7 +93,7 @@ class LiveRecordingController extends Notifier<LiveRecordingState>
         state == AppLifecycleState.hidden ||
         state == AppLifecycleState.paused ||
         state == AppLifecycleState.detached) {
-      if (this.state is LiveStreaming) {
+      if (this.state is LiveStreaming || this.state is LivePaused) {
         _wasStreamingInBackground = true;
       }
     }
@@ -296,6 +297,7 @@ class LiveRecordingController extends Notifier<LiveRecordingState>
 
     final stopCompleter = Completer<void>();
     _stopCompleter = stopCompleter;
+    _isPaused = false;
     _webSocketStatus = 'stopping';
     _captureStatus = 'stopping';
     state = _stoppingState();
@@ -337,6 +339,33 @@ class LiveRecordingController extends Notifier<LiveRecordingState>
         _stopCompleter = null;
       }
     }
+  }
+
+  void pause() {
+    if (_isPaused || state is LivePaused) {
+      return;
+    }
+    if (state is! LiveStreaming) {
+      return;
+    }
+    _isPaused = true;
+    state = _pausedState();
+  }
+
+  void resume() {
+    if (!_isPaused && state is! LivePaused) {
+      return;
+    }
+    if (_meetingId == null || _sessionId == null || _languageCode == null) {
+      return;
+    }
+    _isPaused = false;
+    state = _resumingState();
+    scheduleMicrotask(() {
+      if (state is LiveResuming) {
+        state = _streamingState();
+      }
+    });
   }
 
   Future<void> discard() async {
@@ -424,9 +453,12 @@ class LiveRecordingController extends Notifier<LiveRecordingState>
       completer.completeError(error, stackTrace);
       return;
     }
+    final failedWhilePaused = state is LivePaused || _isPaused;
     unawaited(
       _failAfterCleanup(
-        _messageForError(error),
+        failedWhilePaused
+            ? 'Meeting capture lost connection. Please start again.'
+            : _messageForError(error),
         error,
         webSocketStatus: 'failed',
       ),
@@ -441,10 +473,17 @@ class LiveRecordingController extends Notifier<LiveRecordingState>
         current is LiveFailed) {
       return;
     }
+    final failedWhilePaused = current is LivePaused || _isPaused;
     unawaited(
       _failAfterCleanup(
-        'Live connection closed before recording stopped.',
-        StateError('Live connection closed before recording stopped.'),
+        failedWhilePaused
+            ? 'Meeting capture lost connection. Please start again.'
+            : 'Live connection closed before recording stopped.',
+        StateError(
+          failedWhilePaused
+              ? 'Meeting capture lost connection. Please start again.'
+              : 'Live connection closed before recording stopped.',
+        ),
         webSocketStatus: 'failed',
       ),
     );
@@ -544,6 +583,13 @@ class LiveRecordingController extends Notifier<LiveRecordingState>
     }
 
     final client = _client;
+    if (_isPaused || state is LivePaused) {
+      _pcmChunksSkippedWhilePaused += 1;
+      _lastPcmChunkBytes = bytes.length;
+      _publishPcmMetrics();
+      return;
+    }
+
     final canSend =
         client != null &&
         state is! LiveStopping &&
@@ -602,6 +648,7 @@ class LiveRecordingController extends Notifier<LiveRecordingState>
     }
     await _stopAndroidCapture();
     await _closeClient();
+    _isPaused = false;
     _webSocketStatus = 'closed';
     _captureStatus = 'stopped';
     state = _doneState(doneEvent: event);
@@ -631,6 +678,7 @@ class LiveRecordingController extends Notifier<LiveRecordingState>
 
     await _stopAndroidCapture();
     await _closeClient();
+    _isPaused = false;
     _webSocketStatus = webSocketStatus;
     _captureStatus = 'stopped';
     _setFailed(message, error);
@@ -712,6 +760,7 @@ class LiveRecordingController extends Notifier<LiveRecordingState>
       audioLevel: _audioLevel,
       hasAudioLevel: _hasAudioLevel,
       isAudioDetected: _isAudioDetected,
+      pcmChunksSkippedWhilePaused: _pcmChunksSkippedWhilePaused,
     );
   }
 
@@ -731,6 +780,7 @@ class LiveRecordingController extends Notifier<LiveRecordingState>
       audioLevel: _audioLevel,
       hasAudioLevel: _hasAudioLevel,
       isAudioDetected: _isAudioDetected,
+      pcmChunksSkippedWhilePaused: _pcmChunksSkippedWhilePaused,
     );
   }
 
@@ -750,6 +800,7 @@ class LiveRecordingController extends Notifier<LiveRecordingState>
       audioLevel: _audioLevel,
       hasAudioLevel: _hasAudioLevel,
       isAudioDetected: _isAudioDetected,
+      pcmChunksSkippedWhilePaused: _pcmChunksSkippedWhilePaused,
     );
   }
 
@@ -769,6 +820,48 @@ class LiveRecordingController extends Notifier<LiveRecordingState>
       audioLevel: _audioLevel,
       hasAudioLevel: _hasAudioLevel,
       isAudioDetected: _isAudioDetected,
+      isPaused: _isPaused,
+      pcmChunksSkippedWhilePaused: _pcmChunksSkippedWhilePaused,
+    );
+  }
+
+  LivePaused _pausedState() {
+    return LivePaused(
+      meetingId: _meetingId!,
+      sessionId: _sessionId!,
+      languageCode: _languageCode!,
+      transcriptLines: List.unmodifiable(_transcriptLines),
+      messages: List.unmodifiable(_messages),
+      warnings: List.unmodifiable(_warnings),
+      webSocketStatus: _webSocketStatus,
+      captureStatus: _captureStatus,
+      pcmChunksSent: _pcmChunksSent,
+      pcmChunksDropped: _pcmChunksDropped,
+      lastPcmChunkBytes: _lastPcmChunkBytes,
+      audioLevel: _audioLevel,
+      hasAudioLevel: _hasAudioLevel,
+      isAudioDetected: _isAudioDetected,
+      pcmChunksSkippedWhilePaused: _pcmChunksSkippedWhilePaused,
+    );
+  }
+
+  LiveResuming _resumingState() {
+    return LiveResuming(
+      meetingId: _meetingId!,
+      sessionId: _sessionId!,
+      languageCode: _languageCode!,
+      transcriptLines: List.unmodifiable(_transcriptLines),
+      messages: List.unmodifiable(_messages),
+      warnings: List.unmodifiable(_warnings),
+      webSocketStatus: _webSocketStatus,
+      captureStatus: _captureStatus,
+      pcmChunksSent: _pcmChunksSent,
+      pcmChunksDropped: _pcmChunksDropped,
+      lastPcmChunkBytes: _lastPcmChunkBytes,
+      audioLevel: _audioLevel,
+      hasAudioLevel: _hasAudioLevel,
+      isAudioDetected: _isAudioDetected,
+      pcmChunksSkippedWhilePaused: _pcmChunksSkippedWhilePaused,
     );
   }
 
@@ -788,6 +881,8 @@ class LiveRecordingController extends Notifier<LiveRecordingState>
       audioLevel: _audioLevel,
       hasAudioLevel: _hasAudioLevel,
       isAudioDetected: _isAudioDetected,
+      isPaused: _isPaused,
+      pcmChunksSkippedWhilePaused: _pcmChunksSkippedWhilePaused,
     );
   }
 
@@ -807,6 +902,8 @@ class LiveRecordingController extends Notifier<LiveRecordingState>
       audioLevel: _audioLevel,
       hasAudioLevel: _hasAudioLevel,
       isAudioDetected: _isAudioDetected,
+      isPaused: _isPaused,
+      pcmChunksSkippedWhilePaused: _pcmChunksSkippedWhilePaused,
       finalTranscript: doneEvent?.transcript ?? '',
       usedGroqFallback: doneEvent?.usedGroqFallback ?? false,
     );
@@ -822,6 +919,10 @@ class LiveRecordingController extends Notifier<LiveRecordingState>
       state = _startingCaptureState();
     } else if (state is LiveStreaming) {
       state = _streamingState();
+    } else if (state is LivePaused) {
+      state = _pausedState();
+    } else if (state is LiveResuming) {
+      state = _resumingState();
     } else if (state is! LiveDone && state is! LiveFailed) {
       state = _readyState();
     }
@@ -856,6 +957,8 @@ class LiveRecordingController extends Notifier<LiveRecordingState>
       audioLevel: _audioLevel,
       hasAudioLevel: _hasAudioLevel,
       isAudioDetected: _isAudioDetected,
+      isPaused: _isPaused,
+      pcmChunksSkippedWhilePaused: _pcmChunksSkippedWhilePaused,
     );
   }
 
@@ -928,6 +1031,7 @@ class LiveRecordingController extends Notifier<LiveRecordingState>
     _captureStatus = 'idle';
     _pcmChunksSent = 0;
     _pcmChunksDropped = 0;
+    _pcmChunksSkippedWhilePaused = 0;
     _lastPcmChunkBytes = 0;
     _audioLevel = 0;
     _hasAudioLevel = false;
@@ -937,6 +1041,7 @@ class LiveRecordingController extends Notifier<LiveRecordingState>
     _stopMessageSent = false;
     _captureStopRequested = false;
     _failureCleanupStarted = false;
+    _isPaused = false;
     _wasStreamingInBackground = false;
   }
 
