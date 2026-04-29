@@ -1,11 +1,17 @@
 import 'dart:async';
+import 'dart:io';
 
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 import '../../../core/config/env.dart';
 import '../../../core/languages/supported_languages.dart';
 import '../../../core/providers/supabase_provider.dart';
 import '../../meetings/application/meetings_provider.dart';
+import '../data/android_live_capture_platform.dart';
+import '../data/live_capture_event.dart';
+import '../data/live_capture_config.dart';
 import '../data/live_event.dart';
 import '../data/live_session_repository.dart';
 import '../data/live_websocket_client.dart';
@@ -18,7 +24,10 @@ const kLiveStopDoneTimeout = Duration(seconds: 30);
 
 class LiveRecordingController extends Notifier<LiveRecordingState> {
   LiveWebSocketClient? _client;
+  AndroidLiveCapturePlatform? _capturePlatform;
   StreamSubscription<LiveBackendEvent>? _eventSubscription;
+  StreamSubscription<Uint8List>? _pcmSubscription;
+  StreamSubscription? _captureStatusSubscription;
   Completer<LiveDoneEvent>? _doneCompleter;
 
   String? _meetingId;
@@ -27,6 +36,16 @@ class LiveRecordingController extends Notifier<LiveRecordingState> {
   List<LiveTranscriptLine> _transcriptLines = const <LiveTranscriptLine>[];
   List<String> _messages = const <String>[];
   List<String> _warnings = const <String>[];
+  String _webSocketStatus = 'idle';
+  String _captureStatus = 'idle';
+  int _pcmChunksSent = 0;
+  int _pcmChunksDropped = 0;
+  int _lastPcmChunkBytes = 0;
+  DateTime? _lastPcmMetricsPublishedAt;
+
+  AndroidLiveCapturePlatform get _androidCapturePlatform {
+    return _capturePlatform ??= AndroidLiveCapturePlatform();
+  }
 
   @override
   LiveRecordingState build() {
@@ -95,6 +114,8 @@ class LiveRecordingController extends Notifier<LiveRecordingState> {
 
       final client = await LiveWebSocketClient.connect(webSocketUri);
       _client = client;
+      _webSocketStatus = 'connected';
+      _captureStatus = 'not started';
       _eventSubscription = client.events.listen(
         _handleEvent,
         onError: _handleWebSocketError,
@@ -103,6 +124,101 @@ class LiveRecordingController extends Notifier<LiveRecordingState> {
 
       state = _readyState();
     } catch (error) {
+      await _closeClient();
+      _setFailed(_messageForError(error), error);
+    }
+  }
+
+  Future<void> startAndroidMixedLive({
+    required String title,
+    required String languageCode,
+  }) async {
+    await _stopAndroidCapture();
+    await _closeClient();
+    _clearRuntime();
+
+    final trimmedTitle = title.trim();
+    final normalizedLanguage = _normalizeLanguageCode(languageCode);
+
+    if (trimmedTitle.isEmpty) {
+      state = const LiveFailed(errorMessage: 'Meeting title is required.');
+      return;
+    }
+    if (!_isSupportedLanguage(normalizedLanguage)) {
+      state = const LiveFailed(errorMessage: 'Select a supported language.');
+      return;
+    }
+
+    final authSession = ref.read(currentSessionProvider);
+    if (authSession == null) {
+      state = const LiveFailed(
+        errorMessage: 'Authentication session missing. Please log in again.',
+      );
+      return;
+    }
+
+    try {
+      state = LiveCreatingSession(languageCode: normalizedLanguage);
+      final startResult = await ref
+          .read(liveSessionRepositoryProvider)
+          .createLiveSession(title: trimmedTitle, languageCode: normalizedLanguage);
+
+      _meetingId = startResult.meetingId;
+      _sessionId = startResult.sessionId;
+      _languageCode = startResult.languageCode;
+      _invalidateLiveData();
+
+      _webSocketStatus = 'connecting';
+      _captureStatus = 'not started';
+      state = _connectingState();
+
+      final openSession = ref.read(currentSessionProvider);
+      final accessToken = openSession?.accessToken;
+      if (accessToken == null || accessToken.isEmpty) {
+        throw StateError('Authentication session missing. Please log in again.');
+      }
+
+      final webSocketUri = buildLiveTranscriptionWebSocketUri(
+        backendBaseUrl: Env.backendUrl,
+        sessionId: startResult.sessionId,
+        languageCode: startResult.languageCode,
+        accessToken: accessToken,
+      );
+
+      final client = await LiveWebSocketClient.connect(webSocketUri);
+      _client = client;
+      _webSocketStatus = 'connected';
+      _eventSubscription = client.events.listen(
+        _handleEvent,
+        onError: _handleWebSocketError,
+        onDone: _handleWebSocketDone,
+      );
+
+      _captureStatus = 'requesting permissions';
+      state = _startingCaptureState();
+      await _prepareAndroidMixedCapture();
+
+      _captureStatus = 'listening for PCM';
+      await _subscribeToMixedPcm();
+
+      _captureStatus = 'starting';
+      state = _startingCaptureState();
+      await _androidCapturePlatform.startCapture(
+        const LiveCaptureConfig(
+          captureSystemAudio: true,
+          captureMicrophone: true,
+          enableEchoCanceler: true,
+          enableNoiseSuppressor: true,
+          enableAutomaticGainControl: true,
+          enableMicDucking: true,
+        ),
+      );
+
+      _captureStatus = 'streaming';
+      _webSocketStatus = 'streaming';
+      state = _streamingState();
+    } catch (error) {
+      await _stopAndroidCapture();
       await _closeClient();
       _setFailed(_messageForError(error), error);
     }
@@ -122,16 +238,20 @@ class LiveRecordingController extends Notifier<LiveRecordingState> {
       return;
     }
 
+    _webSocketStatus = 'stopping';
+    _captureStatus = 'stopping';
     state = _stoppingState();
     final doneCompleter = Completer<LiveDoneEvent>();
     _doneCompleter = doneCompleter;
 
     try {
+      await _stopAndroidCapture();
       client.sendStop();
       final doneEvent = await doneCompleter.future.timeout(
         kLiveStopDoneTimeout,
       );
       await _closeClient();
+      _webSocketStatus = 'closed';
       state = _doneState(doneEvent: doneEvent);
       _invalidateLiveData();
     } on TimeoutException {
@@ -140,6 +260,7 @@ class LiveRecordingController extends Notifier<LiveRecordingState> {
         'Recording stopped, but final processing may still be completing.',
       ]);
       await _closeClient();
+      _webSocketStatus = 'closed';
       state = _doneState();
       _invalidateLiveData();
     } catch (error) {
@@ -151,6 +272,7 @@ class LiveRecordingController extends Notifier<LiveRecordingState> {
   }
 
   Future<void> discard() async {
+    await _stopAndroidCapture();
     await _closeClient();
     _clearRuntime();
     state = const LiveIdle();
@@ -158,6 +280,7 @@ class LiveRecordingController extends Notifier<LiveRecordingState> {
   }
 
   void reset() {
+    unawaited(_stopAndroidCapture());
     unawaited(_closeClient());
     _clearRuntime();
     state = const LiveIdle();
@@ -224,6 +347,7 @@ class LiveRecordingController extends Notifier<LiveRecordingState> {
   }
 
   void _handleWebSocketError(Object error, StackTrace stackTrace) {
+    unawaited(_stopAndroidCapture());
     final completer = _doneCompleter;
     if (state is LiveStopping && completer != null && !completer.isCompleted) {
       completer.completeError(error, stackTrace);
@@ -240,7 +364,123 @@ class LiveRecordingController extends Notifier<LiveRecordingState> {
         current is LiveFailed) {
       return;
     }
+    unawaited(_stopAndroidCapture());
     _setFailed('Live connection closed before recording stopped.', null);
+  }
+
+  Future<void> _prepareAndroidMixedCapture() async {
+    final environment = await _androidCapturePlatform.getAndroidCaptureEnvironment();
+    if (!environment.isAndroid || !environment.isSupported) {
+      throw StateError('Android 10 or newer is required for mixed audio capture.');
+    }
+
+    final microphoneStatus = await Permission.microphone.request();
+    if (!microphoneStatus.isGranted) {
+      throw StateError('Microphone permission is required for live transcription.');
+    }
+
+    if (environment.requiresNotificationRuntimePermission) {
+      final notificationStatus = await Permission.notification.request();
+      if (!notificationStatus.isGranted) {
+        throw StateError(
+          'Notification permission is required for the live capture foreground service.',
+        );
+      }
+    }
+
+    final projection = await _androidCapturePlatform.requestProjection();
+    if (!projection.granted) {
+      throw StateError(
+        projection.message ?? 'MediaProjection permission was denied.',
+      );
+    }
+  }
+
+  Future<void> _subscribeToMixedPcm() async {
+    await _ensureCaptureStatusSubscription();
+    await _pcmSubscription?.cancel();
+    _pcmSubscription = _androidCapturePlatform.pcmFrames.listen(
+      _handlePcmFrame,
+      onError: (Object error) {
+        _pcmChunksDropped += 1;
+        _warnings = List.unmodifiable(<String>[
+          ..._warnings,
+          'Mixed PCM stream failed: ${_messageForError(error)}',
+        ]);
+        _publishActiveState();
+      },
+    );
+  }
+
+  Future<void> _ensureCaptureStatusSubscription() async {
+    _captureStatusSubscription ??= _androidCapturePlatform.statusEvents.listen(
+      (event) {
+        final status = event.status;
+        if (status != null && status.isNotEmpty) {
+          _captureStatus = status;
+        }
+        if (event.code == 'mixedPcmFrameDroppedNoListener') {
+          _pcmChunksDropped += 1;
+        }
+        if (event.eventType == LiveCaptureEventType.warning) {
+          final message = event.message?.trim();
+          if (message != null && message.isNotEmpty) {
+            _warnings = List.unmodifiable(<String>[..._warnings, message]);
+          }
+        }
+        _publishActiveState();
+      },
+      onError: (Object error) {
+        _warnings = List.unmodifiable(<String>[
+          ..._warnings,
+          'Android capture status stream failed: ${_messageForError(error)}',
+        ]);
+        _publishActiveState();
+      },
+    );
+  }
+
+  void _handlePcmFrame(Uint8List bytes) {
+    if (bytes.isEmpty) {
+      return;
+    }
+
+    final client = _client;
+    final canSend = client != null &&
+        state is! LiveStopping &&
+        state is! LiveDone &&
+        state is! LiveFailed;
+    if (!canSend) {
+      _pcmChunksDropped += 1;
+      _lastPcmChunkBytes = bytes.length;
+      _publishPcmMetrics();
+      return;
+    }
+
+    try {
+      client.sendBinary(bytes);
+      _pcmChunksSent += 1;
+      _lastPcmChunkBytes = bytes.length;
+    } catch (error) {
+      _pcmChunksDropped += 1;
+      _warnings = List.unmodifiable(<String>[
+        ..._warnings,
+        'PCM chunk dropped because WebSocket was not ready.',
+      ]);
+    }
+    _publishPcmMetrics();
+  }
+
+  void _publishPcmMetrics({bool force = false}) {
+    final now = DateTime.now();
+    final lastPublished = _lastPcmMetricsPublishedAt;
+    if (!force &&
+        lastPublished != null &&
+        now.difference(lastPublished) < const Duration(milliseconds: 250)) {
+      return;
+    }
+    _lastPcmMetricsPublishedAt = now;
+    _publishActiveState();
   }
 
   LiveReadyNoCapture _readyState() {
@@ -251,6 +491,59 @@ class LiveRecordingController extends Notifier<LiveRecordingState> {
       transcriptLines: List.unmodifiable(_transcriptLines),
       messages: List.unmodifiable(_messages),
       warnings: List.unmodifiable(_warnings),
+      webSocketStatus: _webSocketStatus,
+      captureStatus: _captureStatus,
+      pcmChunksSent: _pcmChunksSent,
+      pcmChunksDropped: _pcmChunksDropped,
+      lastPcmChunkBytes: _lastPcmChunkBytes,
+    );
+  }
+
+  LiveConnecting _connectingState() {
+    return LiveConnecting(
+      meetingId: _meetingId!,
+      sessionId: _sessionId!,
+      languageCode: _languageCode!,
+      transcriptLines: List.unmodifiable(_transcriptLines),
+      messages: List.unmodifiable(_messages),
+      warnings: List.unmodifiable(_warnings),
+      webSocketStatus: _webSocketStatus,
+      captureStatus: _captureStatus,
+      pcmChunksSent: _pcmChunksSent,
+      pcmChunksDropped: _pcmChunksDropped,
+      lastPcmChunkBytes: _lastPcmChunkBytes,
+    );
+  }
+
+  LiveStartingCapture _startingCaptureState() {
+    return LiveStartingCapture(
+      meetingId: _meetingId!,
+      sessionId: _sessionId!,
+      languageCode: _languageCode!,
+      transcriptLines: List.unmodifiable(_transcriptLines),
+      messages: List.unmodifiable(_messages),
+      warnings: List.unmodifiable(_warnings),
+      webSocketStatus: _webSocketStatus,
+      captureStatus: _captureStatus,
+      pcmChunksSent: _pcmChunksSent,
+      pcmChunksDropped: _pcmChunksDropped,
+      lastPcmChunkBytes: _lastPcmChunkBytes,
+    );
+  }
+
+  LiveStreaming _streamingState() {
+    return LiveStreaming(
+      meetingId: _meetingId!,
+      sessionId: _sessionId!,
+      languageCode: _languageCode!,
+      transcriptLines: List.unmodifiable(_transcriptLines),
+      messages: List.unmodifiable(_messages),
+      warnings: List.unmodifiable(_warnings),
+      webSocketStatus: _webSocketStatus,
+      captureStatus: _captureStatus,
+      pcmChunksSent: _pcmChunksSent,
+      pcmChunksDropped: _pcmChunksDropped,
+      lastPcmChunkBytes: _lastPcmChunkBytes,
     );
   }
 
@@ -262,6 +555,11 @@ class LiveRecordingController extends Notifier<LiveRecordingState> {
       transcriptLines: List.unmodifiable(_transcriptLines),
       messages: List.unmodifiable(_messages),
       warnings: List.unmodifiable(_warnings),
+      webSocketStatus: _webSocketStatus,
+      captureStatus: _captureStatus,
+      pcmChunksSent: _pcmChunksSent,
+      pcmChunksDropped: _pcmChunksDropped,
+      lastPcmChunkBytes: _lastPcmChunkBytes,
     );
   }
 
@@ -273,6 +571,11 @@ class LiveRecordingController extends Notifier<LiveRecordingState> {
       transcriptLines: List.unmodifiable(_transcriptLines),
       messages: List.unmodifiable(_messages),
       warnings: List.unmodifiable(_warnings),
+      webSocketStatus: _webSocketStatus,
+      captureStatus: _captureStatus,
+      pcmChunksSent: _pcmChunksSent,
+      pcmChunksDropped: _pcmChunksDropped,
+      lastPcmChunkBytes: _lastPcmChunkBytes,
       finalTranscript: doneEvent?.transcript ?? '',
       usedGroqFallback: doneEvent?.usedGroqFallback ?? false,
     );
@@ -284,6 +587,10 @@ class LiveRecordingController extends Notifier<LiveRecordingState> {
     }
     if (state is LiveStopping) {
       state = _stoppingState();
+    } else if (state is LiveStartingCapture) {
+      state = _startingCaptureState();
+    } else if (state is LiveStreaming) {
+      state = _streamingState();
     } else if (state is! LiveDone && state is! LiveFailed) {
       state = _readyState();
     }
@@ -299,6 +606,11 @@ class LiveRecordingController extends Notifier<LiveRecordingState> {
       transcriptLines: List.unmodifiable(_transcriptLines),
       messages: List.unmodifiable(_messages),
       warnings: List.unmodifiable(_warnings),
+      webSocketStatus: _webSocketStatus,
+      captureStatus: _captureStatus,
+      pcmChunksSent: _pcmChunksSent,
+      pcmChunksDropped: _pcmChunksDropped,
+      lastPcmChunkBytes: _lastPcmChunkBytes,
     );
   }
 
@@ -320,8 +632,41 @@ class LiveRecordingController extends Notifier<LiveRecordingState> {
     }
   }
 
+  Future<void> _stopAndroidCapture() async {
+    final platform = _capturePlatform;
+    if (platform != null) {
+      try {
+        _captureStatus = 'stopping';
+        await platform.stopCapture();
+      } catch (_) {
+        // Best-effort native teardown; callers preserve user-facing state.
+      }
+    }
+
+    final pcmSubscription = _pcmSubscription;
+    _pcmSubscription = null;
+    if (pcmSubscription != null) {
+      await pcmSubscription.cancel();
+    }
+
+    final captureStatusSubscription = _captureStatusSubscription;
+    _captureStatusSubscription = null;
+    if (captureStatusSubscription != null) {
+      await captureStatusSubscription.cancel();
+    }
+
+    _captureStatus = 'stopped';
+    _publishPcmMetrics(force: true);
+  }
+
   Future<void> _dispose() async {
+    await _stopAndroidCapture();
     await _closeClient();
+    try {
+      await _capturePlatform?.dispose();
+    } catch (_) {
+      // Best-effort platform cleanup.
+    }
   }
 
   void _clearRuntime() {
@@ -332,6 +677,12 @@ class LiveRecordingController extends Notifier<LiveRecordingState> {
     _messages = const <String>[];
     _warnings = const <String>[];
     _doneCompleter = null;
+    _webSocketStatus = 'idle';
+    _captureStatus = 'idle';
+    _pcmChunksSent = 0;
+    _pcmChunksDropped = 0;
+    _lastPcmChunkBytes = 0;
+    _lastPcmMetricsPublishedAt = null;
   }
 
   void _invalidateLiveData() {
@@ -349,12 +700,35 @@ bool _isSupportedLanguage(String languageCode) {
 }
 
 String _messageForError(Object error) {
+  if (error is SocketException) {
+    return 'Backend is not reachable from this Android device. Use your computer LAN IP or a deployed backend URL.';
+  }
   if (error is ArgumentError && error.message != null) {
     return error.message.toString();
   }
   if (error is StateError) {
     return error.message;
   }
+  if (error is PlatformException) {
+    final message = error.message ?? error.code;
+    if (_looksLikeBackendReachabilityIssue(message)) {
+      return 'Backend is not reachable from this Android device. Use your computer LAN IP or a deployed backend URL.';
+    }
+    return message;
+  }
   final message = error.toString().trim();
+  if (_looksLikeBackendReachabilityIssue(message)) {
+    return 'Backend is not reachable from this Android device. Use your computer LAN IP or a deployed backend URL.';
+  }
   return message.isEmpty ? 'Live recording failed.' : message;
+}
+
+bool _looksLikeBackendReachabilityIssue(String message) {
+  final lower = message.toLowerCase();
+  return lower.contains('socketexception') ||
+      lower.contains('connection refused') ||
+      lower.contains('failed host lookup') ||
+      lower.contains('connection timed out') ||
+      lower.contains('127.0.0.1') ||
+      lower.contains('localhost');
 }

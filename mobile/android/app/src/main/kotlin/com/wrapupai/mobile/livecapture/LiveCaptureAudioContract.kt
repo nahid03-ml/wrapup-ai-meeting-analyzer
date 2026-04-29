@@ -64,6 +64,11 @@ object LiveCaptureAudioContract {
         "mixedMicDuckedForEchoControl"
     const val STATUS_MIXED_MIC_RESTORED_AFTER_ECHO_CONTROL =
         "mixedMicRestoredAfterEchoControl"
+    const val STATUS_MIXED_PCM_STREAMING_STARTED = "mixedPcmStreamingStarted"
+    const val STATUS_MIXED_PCM_STREAMING_STOPPED = "mixedPcmStreamingStopped"
+    const val STATUS_MIXED_PCM_FRAME_EMITTED = "mixedPcmFrameEmitted"
+    const val STATUS_MIXED_PCM_FRAME_DROPPED_NO_LISTENER =
+        "mixedPcmFrameDroppedNoListener"
 
     const val WARNING_SYSTEM_PLAYBACK_SILENT = "systemPlaybackSilent"
     const val WARNING_PLAYBACK_CAPTURE_NO_FRAMES = "playbackCaptureNoFrames"
@@ -75,6 +80,8 @@ object LiveCaptureAudioContract {
     const val WARNING_MIXED_AUDIO_ONLY_SYSTEM_ACTIVE = "mixedAudioOnlySystemActive"
     const val WARNING_MIXED_AUDIO_ONLY_MICROPHONE_ACTIVE =
         "mixedAudioOnlyMicrophoneActive"
+    const val WARNING_MIXED_PCM_FRAME_DROPPED_NO_LISTENER =
+        "mixedPcmFrameDroppedNoListener"
 
     const val ERROR_PLAYBACK_CAPTURE_UNSUPPORTED = "playbackCaptureUnsupported"
     const val ERROR_PROJECTION_UNAVAILABLE = "projectionUnavailable"

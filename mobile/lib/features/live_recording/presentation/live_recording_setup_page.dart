@@ -5,6 +5,7 @@ import '../../../core/theme/app_spacing.dart';
 import '../data/capture_mode.dart';
 import 'widgets/android_capture_smoke_test_panel.dart';
 import 'widgets/capture_mode_card.dart';
+import 'widgets/live_transcription_beta_panel.dart';
 
 class LiveRecordingSetupPage extends StatelessWidget {
   const LiveRecordingSetupPage({super.key});
@@ -27,7 +28,7 @@ class LiveRecordingSetupPage extends StatelessWidget {
             ),
             const SizedBox(height: AppSpacing.sm),
             Text(
-              'WrapUp uses Android OS-level capture permission to prepare device-audio capture. Some meeting apps may block device audio, and real recording is not enabled yet.',
+              'WrapUp uses Android OS-level capture permission for device audio and microphone mixing. Some meeting apps may block device audio, so run the proof checks before the beta stream.',
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                 color: AppColors.textSecondary,
                 height: 1.4,
@@ -35,6 +36,8 @@ class LiveRecordingSetupPage extends StatelessWidget {
             ),
             const SizedBox(height: AppSpacing.lg),
             const CaptureModeCard(mode: androidLiveCaptureMode),
+            const SizedBox(height: AppSpacing.md),
+            const LiveTranscriptionBetaPanel(),
             const SizedBox(height: AppSpacing.md),
             const AndroidCaptureSmokeTestPanel(),
           ],

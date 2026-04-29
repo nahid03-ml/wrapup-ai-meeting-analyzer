@@ -30,6 +30,7 @@ class LiveAudioMixer(
             effectiveSystemGain: Double,
         )
 
+        fun onMixedPcmFrame(frame: MixedAudioFrame)
         fun onMixedCaptureWarning(message: String, code: String? = null)
         fun onMixedCaptureStopped()
     }
@@ -264,6 +265,8 @@ class LiveAudioMixer(
                 }
 
                 val level = levelMeter.calculate(mixedFrame.samples, mixedFrame.samples.size)
+                listener.onMixedPcmFrame(mixedFrame)
+
                 if (!level.isSilent) {
                     lastNonSilentAtMs = nowMs
                     if (!audioDetectedEmitted || silentWarningEmitted) {

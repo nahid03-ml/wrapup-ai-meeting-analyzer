@@ -384,6 +384,10 @@ class LiveCaptureService : Service() {
                     )
                 }
 
+                override fun onMixedPcmFrame(frame: MixedAudioFrame) {
+                    LiveCapturePcmBus.emitMixedFrame(frame.samples)
+                }
+
                 override fun onMixedCaptureWarning(message: String, code: String?) {
                     LiveCaptureStatusBus.emitWarning(message, code)
                 }

@@ -8,6 +8,11 @@ sealed class LiveRecordingState {
     this.transcriptLines = const <LiveTranscriptLine>[],
     this.messages = const <String>[],
     this.warnings = const <String>[],
+    this.webSocketStatus = 'idle',
+    this.captureStatus = 'idle',
+    this.pcmChunksSent = 0,
+    this.pcmChunksDropped = 0,
+    this.lastPcmChunkBytes = 0,
   });
 
   final String? meetingId;
@@ -16,6 +21,11 @@ sealed class LiveRecordingState {
   final List<LiveTranscriptLine> transcriptLines;
   final List<String> messages;
   final List<String> warnings;
+  final String webSocketStatus;
+  final String captureStatus;
+  final int pcmChunksSent;
+  final int pcmChunksDropped;
+  final int lastPcmChunkBytes;
 }
 
 class LiveIdle extends LiveRecordingState {
@@ -34,6 +44,11 @@ class LiveConnecting extends LiveRecordingState {
     super.transcriptLines,
     super.messages,
     super.warnings,
+    super.webSocketStatus = 'connecting',
+    super.captureStatus,
+    super.pcmChunksSent,
+    super.pcmChunksDropped,
+    super.lastPcmChunkBytes,
   });
 }
 
@@ -45,6 +60,43 @@ class LiveReadyNoCapture extends LiveRecordingState {
     super.transcriptLines,
     super.messages,
     super.warnings,
+    super.webSocketStatus = 'connected',
+    super.captureStatus = 'not started',
+    super.pcmChunksSent,
+    super.pcmChunksDropped,
+    super.lastPcmChunkBytes,
+  });
+}
+
+class LiveStartingCapture extends LiveRecordingState {
+  const LiveStartingCapture({
+    required String super.meetingId,
+    required String super.sessionId,
+    required String super.languageCode,
+    super.transcriptLines,
+    super.messages,
+    super.warnings,
+    super.webSocketStatus = 'connected',
+    super.captureStatus = 'starting',
+    super.pcmChunksSent,
+    super.pcmChunksDropped,
+    super.lastPcmChunkBytes,
+  });
+}
+
+class LiveStreaming extends LiveRecordingState {
+  const LiveStreaming({
+    required String super.meetingId,
+    required String super.sessionId,
+    required String super.languageCode,
+    super.transcriptLines,
+    super.messages,
+    super.warnings,
+    super.webSocketStatus = 'streaming',
+    super.captureStatus = 'streaming',
+    super.pcmChunksSent,
+    super.pcmChunksDropped,
+    super.lastPcmChunkBytes,
   });
 }
 
@@ -56,6 +108,11 @@ class LiveStopping extends LiveRecordingState {
     super.transcriptLines,
     super.messages,
     super.warnings,
+    super.webSocketStatus = 'stopping',
+    super.captureStatus = 'stopping',
+    super.pcmChunksSent,
+    super.pcmChunksDropped,
+    super.lastPcmChunkBytes,
   });
 }
 
@@ -67,6 +124,11 @@ class LiveDone extends LiveRecordingState {
     super.transcriptLines,
     super.messages,
     super.warnings,
+    super.webSocketStatus = 'closed',
+    super.captureStatus = 'stopped',
+    super.pcmChunksSent,
+    super.pcmChunksDropped,
+    super.lastPcmChunkBytes,
     this.finalTranscript = '',
     this.usedGroqFallback = false,
   });
@@ -85,6 +147,11 @@ class LiveFailed extends LiveRecordingState {
     super.transcriptLines,
     super.messages,
     super.warnings,
+    super.webSocketStatus = 'failed',
+    super.captureStatus = 'stopped',
+    super.pcmChunksSent,
+    super.pcmChunksDropped,
+    super.lastPcmChunkBytes,
   });
 
   final String errorMessage;

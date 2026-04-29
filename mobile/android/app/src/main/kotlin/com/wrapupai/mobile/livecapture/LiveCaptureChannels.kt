@@ -5,6 +5,9 @@ import android.content.Context
 import android.content.Intent
 import android.media.projection.MediaProjectionManager
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
+import android.os.SystemClock
 import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodCall
@@ -43,10 +46,12 @@ class LiveCaptureChannels(
             object : EventChannel.StreamHandler {
                 override fun onListen(arguments: Any?, events: EventChannel.EventSink) {
                     pcmSink = events
+                    LiveCapturePcmBus.attach(events)
                 }
 
                 override fun onCancel(arguments: Any?) {
                     pcmSink = null
+                    LiveCapturePcmBus.detach()
                 }
             },
         )
@@ -63,6 +68,7 @@ class LiveCaptureChannels(
         projectionResultCode = null
         projectionData = null
         pcmSink = null
+        LiveCapturePcmBus.detach()
         methodChannel.setMethodCallHandler(null)
         statusEventChannel.setStreamHandler(null)
         pcmEventChannel.setStreamHandler(null)
@@ -282,5 +288,82 @@ class LiveCaptureChannels(
         const val STATUS_EVENT_CHANNEL_NAME = "wrapup/live_capture_status"
         const val PCM_EVENT_CHANNEL_NAME = "wrapup/live_capture_pcm"
         private const val REQUEST_MEDIA_PROJECTION = 6042
+    }
+}
+
+object LiveCapturePcmBus {
+    private val mainHandler = Handler(Looper.getMainLooper())
+
+    @Volatile
+    private var eventSink: EventChannel.EventSink? = null
+
+    @Volatile
+    private var lastDroppedNoListenerAtMs = 0L
+
+    @Volatile
+    private var lastFrameEmittedAtMs = 0L
+
+    fun attach(sink: EventChannel.EventSink) {
+        mainHandler.post {
+            eventSink = sink
+            LiveCaptureStatusBus.emitStatus(
+                LiveCaptureAudioContract.STATUS_MIXED_PCM_STREAMING_STARTED,
+                "Mixed PCM EventChannel listener attached.",
+            )
+        }
+    }
+
+    fun detach() {
+        mainHandler.post {
+            eventSink = null
+            LiveCaptureStatusBus.emitStatus(
+                LiveCaptureAudioContract.STATUS_MIXED_PCM_STREAMING_STOPPED,
+                "Mixed PCM EventChannel listener detached.",
+            )
+        }
+    }
+
+    fun emitMixedFrame(samples: ShortArray): Boolean {
+        val sink = eventSink
+        if (sink == null) {
+            emitDroppedNoListener()
+            return false
+        }
+
+        val bytes = PcmByteConverter.toLittleEndianBytes(samples)
+        mainHandler.post {
+            eventSink?.success(bytes)
+        }
+        emitFrameSent(bytes.size)
+        return true
+    }
+
+    private fun emitDroppedNoListener() {
+        val nowMs = SystemClock.elapsedRealtime()
+        if (nowMs - lastDroppedNoListenerAtMs < LiveCaptureAudioContract.NO_DATA_STATUS_INTERVAL_MS) {
+            return
+        }
+        lastDroppedNoListenerAtMs = nowMs
+        LiveCaptureStatusBus.emitWarning(
+            "Mixed PCM frame dropped because Dart is not listening.",
+            LiveCaptureAudioContract.WARNING_MIXED_PCM_FRAME_DROPPED_NO_LISTENER,
+        )
+        LiveCaptureStatusBus.emitStatus(
+            LiveCaptureAudioContract.STATUS_MIXED_PCM_FRAME_DROPPED_NO_LISTENER,
+            "Mixed PCM frame dropped because Dart is not listening.",
+        )
+    }
+
+    private fun emitFrameSent(byteCount: Int) {
+        val nowMs = SystemClock.elapsedRealtime()
+        if (nowMs - lastFrameEmittedAtMs < LiveCaptureAudioContract.NO_DATA_STATUS_INTERVAL_MS) {
+            return
+        }
+        lastFrameEmittedAtMs = nowMs
+        LiveCaptureStatusBus.emitStatus(
+            LiveCaptureAudioContract.STATUS_MIXED_PCM_FRAME_EMITTED,
+            "Mixed PCM frame emitted to Dart.",
+            mapOf("lastPcmChunkBytes" to byteCount),
+        )
     }
 }
