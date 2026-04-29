@@ -14,6 +14,9 @@ import '../../application/live_recording_state.dart';
 const _vercelBackendWarning =
     'Backend URL appears to be a Vercel frontend URL. Live transcription needs '
     'the FastAPI backend host that supports WebSocket.';
+const _longPauseNotice = 'Capture is paused. Resume when you are ready.';
+const _longPauseWarning =
+    'Long pauses may affect the live connection. Resume or stop when ready.';
 
 class LiveTranscriptionBetaPanel extends ConsumerStatefulWidget {
   const LiveTranscriptionBetaPanel({super.key});
@@ -57,14 +60,22 @@ class _LiveTranscriptionBetaPanelState
     final state = ref.watch(liveRecordingControllerProvider);
     final controller = ref.read(liveRecordingControllerProvider.notifier);
     final diagnostics = _LiveBackendDiagnostics.fromBackendUrl(Env.backendUrl);
-    final canEdit = state is LiveIdle || state is LiveFailed;
+    final canEdit = state is LiveIdle;
     final hasMeetingName = _meetingNameController.text.trim().isNotEmpty;
     final hasLanguage = _languageCode != null;
     final canStart = canEdit && hasMeetingName && hasLanguage;
-    final showSetup = state is LiveIdle || state is LiveFailed;
+    final showSetup = state is LiveIdle;
     final userWarning = state.warnings.isEmpty
         ? null
         : _userFacingWarning(state.warnings.last);
+    final openMeeting = state.meetingId == null
+        ? null
+        : () => context.push(
+            AppRoutes.meetingDetail.replaceFirst(
+              ':id',
+              Uri.encodeComponent(state.meetingId!),
+            ),
+          );
 
     return Container(
       padding: const EdgeInsets.all(AppSpacing.lg),
@@ -97,6 +108,14 @@ class _LiveTranscriptionBetaPanelState
                 );
               },
             )
+          else if (state is LiveFailed)
+            _LiveCaptureFailureCard(
+              state: state,
+              meetingName: _displayMeetingName(_meetingNameController.text),
+              languageName: _languageName(state.languageCode ?? _languageCode),
+              onStartNewCapture: controller.reset,
+              onOpenMeeting: openMeeting,
+            )
           else
             _LiveCaptureStatusCard(
               state: state,
@@ -111,14 +130,7 @@ class _LiveTranscriptionBetaPanelState
                       state is LiveResuming
                   ? controller.stop
                   : null,
-              onOpenMeeting: state is LiveDone && state.meetingId != null
-                  ? () => context.push(
-                      AppRoutes.meetingDetail.replaceFirst(
-                        ':id',
-                        Uri.encodeComponent(state.meetingId!),
-                      ),
-                    )
-                  : null,
+              onOpenMeeting: state is LiveDone ? openMeeting : null,
             ),
           if (userWarning != null) ...[
             const SizedBox(height: AppSpacing.md),
@@ -126,14 +138,6 @@ class _LiveTranscriptionBetaPanelState
               icon: Icons.warning_amber_outlined,
               color: AppColors.warning,
               text: userWarning,
-            ),
-          ],
-          if (state is LiveFailed) ...[
-            const SizedBox(height: AppSpacing.md),
-            _MessageBox(
-              icon: Icons.error_outline,
-              color: AppColors.destructive,
-              text: _userFacingError(state.errorMessage),
             ),
           ],
           const SizedBox(height: AppSpacing.md),
@@ -329,6 +333,16 @@ class _LiveCaptureStatusCard extends StatelessWidget {
           const SizedBox(height: AppSpacing.md),
           _InfoRow(label: 'Meeting name', value: meetingName),
           _InfoRow(label: 'Language', value: languageName),
+          if (_hasStartedTiming(state))
+            _InfoRow(
+              label: 'Recording time',
+              value: _formatDuration(state.activeDuration),
+            ),
+          if (state is LivePaused)
+            _InfoRow(
+              label: 'Paused',
+              value: _formatDuration(state.pausedDuration),
+            ),
           if (showMeter) ...[
             const SizedBox(height: AppSpacing.md),
             _AudioLevelMeter(state: state),
@@ -393,6 +407,101 @@ class _LiveCaptureStatusCard extends StatelessWidget {
                 label: Text(
                   state is LiveStopping ? 'Stopping safely...' : 'Stop capture',
                 ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _LiveCaptureFailureCard extends StatelessWidget {
+  const _LiveCaptureFailureCard({
+    required this.state,
+    required this.meetingName,
+    required this.languageName,
+    required this.onStartNewCapture,
+    required this.onOpenMeeting,
+  });
+
+  final LiveFailed state;
+  final String meetingName;
+  final String languageName;
+  final VoidCallback onStartNewCapture;
+  final VoidCallback? onOpenMeeting;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(AppSpacing.md),
+      decoration: BoxDecoration(
+        color: AppColors.background.withValues(alpha: 0.38),
+        borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Icon(Icons.error_outline, color: AppColors.destructive),
+              const SizedBox(width: AppSpacing.sm),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Capture stopped',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        color: AppColors.textPrimary,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: AppSpacing.xs),
+                    Text(
+                      _userFacingError(state.errorMessage),
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: AppColors.textSecondary,
+                        height: 1.35,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.md),
+          _InfoRow(label: 'Meeting name', value: meetingName),
+          _InfoRow(label: 'Language', value: languageName),
+          if (_hasStartedTiming(state))
+            _InfoRow(
+              label: 'Recording time',
+              value: _formatDuration(state.activeDuration),
+            ),
+          if (state.transcriptLines.isNotEmpty) ...[
+            const SizedBox(height: AppSpacing.md),
+            _TranscriptPreview(state: state),
+          ],
+          const SizedBox(height: AppSpacing.lg),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              onPressed: onStartNewCapture,
+              icon: const Icon(Icons.refresh_outlined),
+              label: const Text('Start new capture'),
+            ),
+          ),
+          if (onOpenMeeting != null) ...[
+            const SizedBox(height: AppSpacing.sm),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: onOpenMeeting,
+                icon: const Icon(Icons.open_in_new_outlined),
+                label: const Text('Open meeting'),
               ),
             ),
           ],
@@ -629,6 +738,42 @@ class _AdvancedDiagnosticsCard extends StatelessWidget {
               _StatusRow(label: 'Capture status', value: state.captureStatus),
               _StatusRow(label: 'Paused', value: state.isPaused ? 'yes' : 'no'),
               _StatusRow(
+                label: 'WebSocket open',
+                value: _isWebSocketOpen(state.webSocketStatus) ? 'yes' : 'no',
+              ),
+              _StatusRow(
+                label: 'Paused duration',
+                value: _formatDuration(state.pausedDuration),
+              ),
+              _StatusRow(
+                label: 'Total session duration',
+                value: _formatDuration(state.totalSessionDuration),
+              ),
+              _StatusRow(
+                label: 'Last PCM sent',
+                value: _formatDiagnosticTime(state.lastPcmSentAt),
+              ),
+              _StatusRow(
+                label: 'Last backend event',
+                value: _formatDiagnosticTime(state.lastBackendEventAt),
+              ),
+              _StatusRow(
+                label: 'Last transcript event',
+                value: _formatDiagnosticTime(state.lastTranscriptEventAt),
+              ),
+              _StatusRow(
+                label: 'Background count',
+                value: '${state.appBackgroundCount}',
+              ),
+              _StatusRow(
+                label: 'Background returns',
+                value: '${state.appForegroundReturnCount}',
+              ),
+              _StatusRow(
+                label: 'Last background time',
+                value: _formatDiagnosticTime(state.lastBackgroundedAt),
+              ),
+              _StatusRow(
                 label: 'PCM chunks sent',
                 value: '${state.pcmChunksSent}',
               ),
@@ -644,6 +789,11 @@ class _AdvancedDiagnosticsCard extends StatelessWidget {
                 label: 'Last PCM chunk bytes',
                 value: '${state.lastPcmChunkBytes}',
               ),
+              if (state is LiveFailed)
+                _StatusRow(
+                  label: 'Technical reason',
+                  value: (state as LiveFailed).errorMessage,
+                ),
               if (diagnostics.isLikelyVercelFrontend) ...[
                 const SizedBox(height: AppSpacing.sm),
                 const _MessageBox(
@@ -691,6 +841,8 @@ class _AdvancedDiagnosticsCard extends StatelessWidget {
                   text: healthMessage!,
                 ),
               ],
+              const SizedBox(height: AppSpacing.sm),
+              const _QaChecklist(),
             ],
           ],
         ),
@@ -769,6 +921,60 @@ class _StatusRow extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _QaChecklist extends StatelessWidget {
+  const _QaChecklist();
+
+  @override
+  Widget build(BuildContext context) {
+    final textStyle = Theme.of(context).textTheme.bodySmall?.copyWith(
+      color: AppColors.textSecondary,
+      height: 1.35,
+    );
+    const items = <String>[
+      '10-minute recording test',
+      '2-minute pause test',
+      'Stop while paused test',
+      'Background return test',
+      'Network interruption test',
+    ];
+
+    return ExpansionTile(
+      tilePadding: EdgeInsets.zero,
+      childrenPadding: EdgeInsets.zero,
+      initiallyExpanded: false,
+      leading: const Icon(
+        Icons.checklist_outlined,
+        color: AppColors.textSecondary,
+      ),
+      title: Text(
+        'QA checklist',
+        style: Theme.of(context).textTheme.titleSmall?.copyWith(
+          color: AppColors.textPrimary,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+      children: [
+        for (final item in items)
+          Padding(
+            padding: const EdgeInsets.only(bottom: AppSpacing.xs),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(
+                  Icons.check_circle_outline,
+                  size: 16,
+                  color: AppColors.textMuted,
+                ),
+                const SizedBox(width: AppSpacing.sm),
+                Expanded(child: Text(item, style: textStyle)),
+              ],
+            ),
+          ),
+      ],
     );
   }
 }
@@ -901,8 +1107,48 @@ String _previewTranscript(String transcript) {
   return '${trimmed.substring(0, 1200)}...';
 }
 
+bool _hasStartedTiming(LiveRecordingState state) {
+  return state.captureStartedAt != null ||
+      state.totalSessionDuration > Duration.zero;
+}
+
+String _formatDuration(Duration duration) {
+  final seconds = duration.inSeconds < 0 ? 0 : duration.inSeconds;
+  final hours = seconds ~/ 3600;
+  final minutes = (seconds % 3600) ~/ 60;
+  final remainingSeconds = seconds % 60;
+  final minuteText = minutes.toString().padLeft(2, '0');
+  final secondText = remainingSeconds.toString().padLeft(2, '0');
+  if (hours > 0) {
+    return '$hours:$minuteText:$secondText';
+  }
+  return '$minuteText:$secondText';
+}
+
+String _formatDiagnosticTime(DateTime? value) {
+  if (value == null) {
+    return 'never';
+  }
+  final local = value.toLocal();
+  final year = local.year.toString().padLeft(4, '0');
+  final month = local.month.toString().padLeft(2, '0');
+  final day = local.day.toString().padLeft(2, '0');
+  final hour = local.hour.toString().padLeft(2, '0');
+  final minute = local.minute.toString().padLeft(2, '0');
+  final second = local.second.toString().padLeft(2, '0');
+  return '$year-$month-$day $hour:$minute:$second';
+}
+
+bool _isWebSocketOpen(String status) {
+  final lower = status.toLowerCase();
+  return lower == 'connected' || lower == 'streaming' || lower == 'stopping';
+}
+
 String? _userFacingWarning(String warning) {
   final lower = warning.toLowerCase();
+  if (warning == _longPauseNotice || warning == _longPauseWarning) {
+    return warning;
+  }
   if (lower.contains('background')) {
     return 'Live capture continued in the background.';
   }
@@ -919,6 +1165,15 @@ String _userFacingError(String message) {
   final lower = message.toLowerCase();
   if (lower.contains('meeting title') || lower.contains('meeting name')) {
     return 'Meeting name is required.';
+  }
+  if (lower.contains('connection lost while capture was paused')) {
+    return 'Connection lost while capture was paused. Please start again.';
+  }
+  if (lower.contains('live connection ended during pause')) {
+    return 'Live connection ended during pause. Please start a new capture.';
+  }
+  if (lower.contains('connection lost')) {
+    return 'Connection lost. Capture stopped safely.';
   }
   if (lower.contains('lost connection')) {
     return 'Meeting capture lost connection. Please start again.';

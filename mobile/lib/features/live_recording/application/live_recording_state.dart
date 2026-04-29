@@ -18,6 +18,17 @@ sealed class LiveRecordingState {
     this.isAudioDetected = false,
     this.isPaused = false,
     this.pcmChunksSkippedWhilePaused = 0,
+    this.captureStartedAt,
+    this.captureStoppedAt,
+    this.activeDuration = Duration.zero,
+    this.pausedDuration = Duration.zero,
+    this.totalSessionDuration = Duration.zero,
+    this.lastTranscriptEventAt,
+    this.lastPcmSentAt,
+    this.lastBackendEventAt,
+    this.appBackgroundCount = 0,
+    this.appForegroundReturnCount = 0,
+    this.lastBackgroundedAt,
   });
 
   final String? meetingId;
@@ -36,6 +47,17 @@ sealed class LiveRecordingState {
   final bool isAudioDetected;
   final bool isPaused;
   final int pcmChunksSkippedWhilePaused;
+  final DateTime? captureStartedAt;
+  final DateTime? captureStoppedAt;
+  final Duration activeDuration;
+  final Duration pausedDuration;
+  final Duration totalSessionDuration;
+  final DateTime? lastTranscriptEventAt;
+  final DateTime? lastPcmSentAt;
+  final DateTime? lastBackendEventAt;
+  final int appBackgroundCount;
+  final int appForegroundReturnCount;
+  final DateTime? lastBackgroundedAt;
 }
 
 class LiveIdle extends LiveRecordingState {
@@ -43,7 +65,20 @@ class LiveIdle extends LiveRecordingState {
 }
 
 class LiveCreatingSession extends LiveRecordingState {
-  const LiveCreatingSession({super.languageCode});
+  const LiveCreatingSession({
+    super.languageCode,
+    super.captureStartedAt,
+    super.captureStoppedAt,
+    super.activeDuration,
+    super.pausedDuration,
+    super.totalSessionDuration,
+    super.lastTranscriptEventAt,
+    super.lastPcmSentAt,
+    super.lastBackendEventAt,
+    super.appBackgroundCount,
+    super.appForegroundReturnCount,
+    super.lastBackgroundedAt,
+  });
 }
 
 class LiveConnecting extends LiveRecordingState {
@@ -64,6 +99,17 @@ class LiveConnecting extends LiveRecordingState {
     super.isAudioDetected,
     super.isPaused,
     super.pcmChunksSkippedWhilePaused,
+    super.captureStartedAt,
+    super.captureStoppedAt,
+    super.activeDuration,
+    super.pausedDuration,
+    super.totalSessionDuration,
+    super.lastTranscriptEventAt,
+    super.lastPcmSentAt,
+    super.lastBackendEventAt,
+    super.appBackgroundCount,
+    super.appForegroundReturnCount,
+    super.lastBackgroundedAt,
   });
 }
 
@@ -85,6 +131,17 @@ class LiveReadyNoCapture extends LiveRecordingState {
     super.isAudioDetected,
     super.isPaused,
     super.pcmChunksSkippedWhilePaused,
+    super.captureStartedAt,
+    super.captureStoppedAt,
+    super.activeDuration,
+    super.pausedDuration,
+    super.totalSessionDuration,
+    super.lastTranscriptEventAt,
+    super.lastPcmSentAt,
+    super.lastBackendEventAt,
+    super.appBackgroundCount,
+    super.appForegroundReturnCount,
+    super.lastBackgroundedAt,
   });
 }
 
@@ -106,6 +163,17 @@ class LiveStartingCapture extends LiveRecordingState {
     super.isAudioDetected,
     super.isPaused,
     super.pcmChunksSkippedWhilePaused,
+    super.captureStartedAt,
+    super.captureStoppedAt,
+    super.activeDuration,
+    super.pausedDuration,
+    super.totalSessionDuration,
+    super.lastTranscriptEventAt,
+    super.lastPcmSentAt,
+    super.lastBackendEventAt,
+    super.appBackgroundCount,
+    super.appForegroundReturnCount,
+    super.lastBackgroundedAt,
   });
 }
 
@@ -127,6 +195,17 @@ class LiveStreaming extends LiveRecordingState {
     super.isAudioDetected,
     super.isPaused,
     super.pcmChunksSkippedWhilePaused,
+    super.captureStartedAt,
+    super.captureStoppedAt,
+    super.activeDuration,
+    super.pausedDuration,
+    super.totalSessionDuration,
+    super.lastTranscriptEventAt,
+    super.lastPcmSentAt,
+    super.lastBackendEventAt,
+    super.appBackgroundCount,
+    super.appForegroundReturnCount,
+    super.lastBackgroundedAt,
   });
 }
 
@@ -147,6 +226,17 @@ class LivePaused extends LiveRecordingState {
     super.hasAudioLevel,
     super.isAudioDetected,
     super.pcmChunksSkippedWhilePaused,
+    super.captureStartedAt,
+    super.captureStoppedAt,
+    super.activeDuration,
+    super.pausedDuration,
+    super.totalSessionDuration,
+    super.lastTranscriptEventAt,
+    super.lastPcmSentAt,
+    super.lastBackendEventAt,
+    super.appBackgroundCount,
+    super.appForegroundReturnCount,
+    super.lastBackgroundedAt,
   }) : super(isPaused: true);
 }
 
@@ -167,6 +257,17 @@ class LiveResuming extends LiveRecordingState {
     super.hasAudioLevel,
     super.isAudioDetected,
     super.pcmChunksSkippedWhilePaused,
+    super.captureStartedAt,
+    super.captureStoppedAt,
+    super.activeDuration,
+    super.pausedDuration,
+    super.totalSessionDuration,
+    super.lastTranscriptEventAt,
+    super.lastPcmSentAt,
+    super.lastBackendEventAt,
+    super.appBackgroundCount,
+    super.appForegroundReturnCount,
+    super.lastBackgroundedAt,
   });
 }
 
@@ -188,6 +289,17 @@ class LiveStopping extends LiveRecordingState {
     super.isAudioDetected,
     super.isPaused,
     super.pcmChunksSkippedWhilePaused,
+    super.captureStartedAt,
+    super.captureStoppedAt,
+    super.activeDuration,
+    super.pausedDuration,
+    super.totalSessionDuration,
+    super.lastTranscriptEventAt,
+    super.lastPcmSentAt,
+    super.lastBackendEventAt,
+    super.appBackgroundCount,
+    super.appForegroundReturnCount,
+    super.lastBackgroundedAt,
   });
 }
 
@@ -209,6 +321,17 @@ class LiveDone extends LiveRecordingState {
     super.isAudioDetected,
     super.isPaused,
     super.pcmChunksSkippedWhilePaused,
+    super.captureStartedAt,
+    super.captureStoppedAt,
+    super.activeDuration,
+    super.pausedDuration,
+    super.totalSessionDuration,
+    super.lastTranscriptEventAt,
+    super.lastPcmSentAt,
+    super.lastBackendEventAt,
+    super.appBackgroundCount,
+    super.appForegroundReturnCount,
+    super.lastBackgroundedAt,
     this.finalTranscript = '',
     this.usedGroqFallback = false,
   });
@@ -237,6 +360,17 @@ class LiveFailed extends LiveRecordingState {
     super.isAudioDetected,
     super.isPaused,
     super.pcmChunksSkippedWhilePaused,
+    super.captureStartedAt,
+    super.captureStoppedAt,
+    super.activeDuration,
+    super.pausedDuration,
+    super.totalSessionDuration,
+    super.lastTranscriptEventAt,
+    super.lastPcmSentAt,
+    super.lastBackendEventAt,
+    super.appBackgroundCount,
+    super.appForegroundReturnCount,
+    super.lastBackgroundedAt,
   });
 
   final String errorMessage;
