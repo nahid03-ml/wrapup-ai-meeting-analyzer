@@ -35,6 +35,7 @@ class LiveCaptureEvent {
     this.bufferSizeBytes,
     this.readResult,
     this.recordingState,
+    this.audioSource,
   });
 
   final LiveCaptureEventType eventType;
@@ -50,6 +51,7 @@ class LiveCaptureEvent {
   final int? bufferSizeBytes;
   final int? readResult;
   final int? recordingState;
+  final String? audioSource;
 
   String get type => eventType.wireValue;
 
@@ -71,6 +73,7 @@ class LiveCaptureEvent {
       bufferSizeBytes: _intOrNull(map['bufferSizeBytes']),
       readResult: _intOrNull(map['readResult']),
       recordingState: _intOrNull(map['recordingState']),
+      audioSource: _stringOrNull(map['audioSource']),
     );
   }
 

@@ -186,9 +186,17 @@ class LiveCaptureChannels(
             return
         }
 
+        val config = LiveCaptureConfig.fromArguments(arguments)
+        if (config.captureSystemAudio && config.captureMicrophone) {
+            LiveCaptureStatusBus.emitWarning(
+                "Combined mic + system capture is deferred until Phase 6H.",
+                "combinedCaptureDeferred",
+            )
+        }
+
         val resultCode = projectionResultCode
         val data = projectionData
-        if (resultCode == null || data == null) {
+        if (config.captureSystemAudio && (resultCode == null || data == null)) {
             LiveCaptureStatusBus.emitStatus(
                 "projectionRequired",
                 "MediaProjection permission must be granted before starting capture.",
@@ -201,7 +209,6 @@ class LiveCaptureChannels(
             return
         }
 
-        val config = LiveCaptureConfig.fromArguments(arguments)
         projectionResultCode = null
         projectionData = null
         LiveCaptureStatusBus.emitStatus("startingService")

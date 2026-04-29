@@ -48,7 +48,29 @@ class AndroidCaptureSmokeTestController
     }
   }
 
-  Future<void> runSmokeTest() async {
+  Future<void> runSmokeTest() => runSystemPlaybackTest();
+
+  Future<void> runSystemPlaybackTest() async {
+    await _runCaptureProof(
+      captureSystemAudio: true,
+      captureMicrophone: false,
+      requiresProjection: true,
+    );
+  }
+
+  Future<void> runMicrophoneTest() async {
+    await _runCaptureProof(
+      captureSystemAudio: false,
+      captureMicrophone: true,
+      requiresProjection: false,
+    );
+  }
+
+  Future<void> _runCaptureProof({
+    required bool captureSystemAudio,
+    required bool captureMicrophone,
+    required bool requiresProjection,
+  }) async {
     await _ensureStatusSubscription();
 
     final environment = await _capturePlatform.getAndroidCaptureEnvironment();
@@ -108,52 +130,76 @@ class AndroidCaptureSmokeTestController
         state = state.copyWith(notificationPermissionStatus: 'not required');
       }
 
-      state = state.copyWith(
-        status: AndroidCaptureSmokeTestStatus.requestingProjection,
-        isRequestingPermissions: false,
-        isRequestingProjection: true,
-        projectionStatus: 'requesting',
-        statusText: 'Requesting Android screen/audio capture permission.',
-      );
-
-      final projection = await _capturePlatform.requestProjection();
-      if (!projection.granted) {
+      if (requiresProjection) {
         state = state.copyWith(
-          status: AndroidCaptureSmokeTestStatus.projectionDenied,
-          isRequestingProjection: false,
-          projectionStatus: 'denied',
-          statusText: 'MediaProjection permission was denied.',
-          errorMessage:
-              projection.message ?? 'MediaProjection permission was denied.',
+          status: AndroidCaptureSmokeTestStatus.requestingProjection,
+          isRequestingPermissions: false,
+          isRequestingProjection: true,
+          projectionStatus: 'requesting',
+          statusText: 'Requesting Android screen/audio capture permission.',
         );
-        return;
-      }
 
-      state = state.copyWith(
-        status: AndroidCaptureSmokeTestStatus.projectionGranted,
-        isRequestingProjection: false,
-        projectionStatus: 'granted',
-        statusText: 'MediaProjection granted. Starting foreground service.',
-      );
+        final projection = await _capturePlatform.requestProjection();
+        if (!projection.granted) {
+          state = state.copyWith(
+            status: AndroidCaptureSmokeTestStatus.projectionDenied,
+            isRequestingProjection: false,
+            projectionStatus: 'denied',
+            statusText: 'MediaProjection permission was denied.',
+            errorMessage:
+                projection.message ?? 'MediaProjection permission was denied.',
+          );
+          return;
+        }
+
+        state = state.copyWith(
+          status: AndroidCaptureSmokeTestStatus.projectionGranted,
+          isRequestingProjection: false,
+          projectionStatus: 'granted',
+          statusText: 'MediaProjection granted. Starting foreground service.',
+        );
+      } else {
+        state = state.copyWith(
+          isRequestingPermissions: false,
+          isRequestingProjection: false,
+          projectionStatus: 'not required',
+          statusText: 'Starting microphone foreground service.',
+        );
+      }
 
       state = state.copyWith(
         status: AndroidCaptureSmokeTestStatus.serviceStarting,
         serviceStatus: 'starting',
-        systemPlaybackStatus: 'not started',
-        playbackReadStatus: 'not started',
-        hasPlaybackFirstFrameRead: false,
-        clearLatestReadResult: true,
-        clearAudioRecordDetails: true,
-        systemAudioLevel: 0.0,
-        isSystemAudioSilent: true,
-        clearSystemAudioSampleRateHz: true,
+        systemPlaybackStatus:
+            captureSystemAudio ? 'not started' : state.systemPlaybackStatus,
+        playbackReadStatus:
+            captureSystemAudio ? 'not started' : state.playbackReadStatus,
+        hasPlaybackFirstFrameRead:
+            captureSystemAudio ? false : state.hasPlaybackFirstFrameRead,
+        clearLatestReadResult: captureSystemAudio,
+        clearAudioRecordDetails: captureSystemAudio,
+        micCaptureStatus:
+            captureMicrophone ? 'not started' : state.micCaptureStatus,
+        micReadStatus: captureMicrophone ? 'not started' : state.micReadStatus,
+        hasMicFirstFrameRead:
+            captureMicrophone ? false : state.hasMicFirstFrameRead,
+        clearLatestMicReadResult: captureMicrophone,
+        clearMicAudioRecordDetails: captureMicrophone,
+        micAudioLevel: captureMicrophone ? 0.0 : state.micAudioLevel,
+        isMicSilent: captureMicrophone ? true : state.isMicSilent,
+        clearMicAudioSampleRateHz: captureMicrophone,
+        clearMicAudioSource: captureMicrophone,
+        systemAudioLevel: captureSystemAudio ? 0.0 : state.systemAudioLevel,
+        isSystemAudioSilent:
+            captureSystemAudio ? true : state.isSystemAudioSilent,
+        clearSystemAudioSampleRateHz: captureSystemAudio,
         statusText: 'Starting Android live capture foreground service.',
       );
 
       await _capturePlatform.startCapture(
-        const LiveCaptureConfig(
-          captureSystemAudio: true,
-          captureMicrophone: false,
+        LiveCaptureConfig(
+          captureSystemAudio: captureSystemAudio,
+          captureMicrophone: captureMicrophone,
         ),
       );
       state = state.copyWith(
@@ -185,6 +231,8 @@ class AndroidCaptureSmokeTestController
         serviceStatus: 'stopping',
         systemPlaybackStatus: 'stopping',
         playbackReadStatus: 'stop requested',
+        micCaptureStatus: 'stopping',
+        micReadStatus: 'stop requested',
         clearError: true,
       );
       await _capturePlatform.stopCapture();
@@ -232,6 +280,8 @@ class AndroidCaptureSmokeTestController
         _handleStatusValue(event, events);
       case LiveCaptureEventType.warning:
         final isNoFramesWarning = event.code == 'playbackCaptureNoFrames';
+        final isMicNoFramesWarning = event.code == 'microphoneCaptureNoFrames';
+        final isMicSilentWarning = event.code == 'microphoneSilent';
         state = state.copyWith(
           systemPlaybackStatus: event.code == 'systemPlaybackSilent'
               ? 'silent'
@@ -242,6 +292,12 @@ class AndroidCaptureSmokeTestController
           playbackReadStatus: isNoFramesWarning
               ? 'no frames read'
               : state.playbackReadStatus,
+          micCaptureStatus:
+              isMicSilentWarning ? 'silent' : state.micCaptureStatus,
+          isMicSilent: isMicSilentWarning ? true : state.isMicSilent,
+          micReadStatus: isMicNoFramesWarning
+              ? 'no frames read'
+              : state.micReadStatus,
           warnings: List<String>.unmodifiable(<String>[
             event.message ?? 'Android capture warning.',
             ...state.warnings,
@@ -267,6 +323,25 @@ class AndroidCaptureSmokeTestController
     LiveCaptureEvent event,
     List<LiveCaptureEvent> events,
   ) {
+    if (event.source == 'microphone') {
+      final level = (event.level ?? 0.0).clamp(0.0, 1.0).toDouble();
+      final isSilent = event.isSilent ?? level < 0.01;
+      state = state.copyWith(
+        status: state.isServiceRunning
+            ? AndroidCaptureSmokeTestStatus.playbackCaptureRunning
+            : state.status,
+        micAudioLevel: level,
+        isMicSilent: isSilent,
+        hasMicFirstFrameRead: true,
+        micAudioSampleRateHz: event.sampleRateHz,
+        micAudioSource: event.audioSource,
+        micCaptureStatus: isSilent ? 'silent' : 'audio detected',
+        micReadStatus: isSilent ? 'reading silent frames' : 'reading audio',
+        events: events,
+      );
+      return;
+    }
+
     if (event.source != 'systemPlayback') {
       state = state.copyWith(events: events);
       return;
@@ -346,6 +421,8 @@ class AndroidCaptureSmokeTestController
           serviceStatus: 'stopping',
           systemPlaybackStatus: 'stopping',
           playbackReadStatus: 'stop requested',
+          micCaptureStatus: 'stopping',
+          micReadStatus: 'stop requested',
           statusText:
               event.message ?? 'Stopping Android live capture foreground service.',
           events: events,
@@ -467,6 +544,133 @@ class AndroidCaptureSmokeTestController
           events: events,
           clearError: true,
         );
+      case 'microphoneAudioRecordBuilt':
+        state = state.copyWith(
+          micCaptureStatus: 'AudioRecord built',
+          micReadStatus: 'built',
+          micAudioSampleRateHz: event.sampleRateHz,
+          micAudioSource: event.audioSource,
+          micAudioRecordDetails: _audioRecordDetails(event),
+          statusText: event.message ?? 'Microphone AudioRecord was built.',
+          events: events,
+          clearError: true,
+        );
+      case 'microphoneAudioRecordStartRequested':
+        state = state.copyWith(
+          micCaptureStatus: 'starting AudioRecord',
+          micReadStatus: 'start requested',
+          latestMicReadResult: event.readResult,
+          micAudioSource: event.audioSource,
+          statusText: event.message ?? 'Starting microphone AudioRecord.',
+          events: events,
+          clearError: true,
+        );
+      case 'microphoneAudioRecordRecording':
+        state = state.copyWith(
+          micCaptureStatus: 'recording',
+          micReadStatus: 'recording',
+          micAudioSource: event.audioSource,
+          statusText:
+              event.message ?? 'Microphone AudioRecord entered recording state.',
+          events: events,
+          clearError: true,
+        );
+      case 'microphoneCaptureStarting':
+        state = state.copyWith(
+          status: AndroidCaptureSmokeTestStatus.playbackCaptureStarting,
+          isServiceRunning: true,
+          serviceStatus: 'running',
+          micCaptureStatus: 'starting',
+          statusText:
+              event.message ?? 'Starting Android microphone AudioRecord.',
+          events: events,
+          clearError: true,
+        );
+      case 'microphoneCaptureStarted':
+        state = state.copyWith(
+          status: AndroidCaptureSmokeTestStatus.playbackCaptureRunning,
+          isServiceRunning: true,
+          serviceStatus: 'running',
+          micCaptureStatus: 'running',
+          micAudioSampleRateHz: event.sampleRateHz,
+          micAudioSource: event.audioSource,
+          statusText:
+              'This checks microphone capture only. It does not mix mic with system audio yet.',
+          events: events,
+          clearError: true,
+        );
+      case 'microphoneReadStarted':
+        state = state.copyWith(
+          status: AndroidCaptureSmokeTestStatus.playbackCaptureRunning,
+          isServiceRunning: true,
+          serviceStatus: 'running',
+          micReadStatus: 'waiting for frames',
+          micAudioSource: event.audioSource,
+          statusText: event.message ?? 'Microphone capture read loop started.',
+          events: events,
+          clearError: true,
+        );
+      case 'microphoneReadNoData':
+        state = state.copyWith(
+          status: AndroidCaptureSmokeTestStatus.playbackCaptureRunning,
+          isServiceRunning: true,
+          serviceStatus: 'running',
+          micReadStatus: 'no data yet',
+          latestMicReadResult: event.readResult,
+          micAudioSource: event.audioSource,
+          statusText:
+              event.message ?? 'Microphone capture read returned no data yet.',
+          events: events,
+          clearError: true,
+        );
+      case 'microphoneFirstFrameRead':
+        state = state.copyWith(
+          status: AndroidCaptureSmokeTestStatus.playbackCaptureRunning,
+          isServiceRunning: true,
+          serviceStatus: 'running',
+          micCaptureStatus: 'frames detected',
+          micReadStatus: 'first frame read',
+          hasMicFirstFrameRead: true,
+          latestMicReadResult: event.readResult,
+          micAudioSampleRateHz: event.sampleRateHz,
+          micAudioSource: event.audioSource,
+          statusText: event.message ?? 'First microphone audio frame was read.',
+          events: events,
+          clearError: true,
+        );
+      case 'microphoneAudioDetected':
+        state = state.copyWith(
+          status: AndroidCaptureSmokeTestStatus.playbackCaptureRunning,
+          isServiceRunning: true,
+          serviceStatus: 'running',
+          micCaptureStatus: 'audio detected',
+          isMicSilent: false,
+          micAudioSource: event.audioSource,
+          statusText: event.message ?? 'Microphone audio detected.',
+          events: events,
+          clearError: true,
+        );
+      case 'microphoneReadStopped':
+        state = state.copyWith(
+          micReadStatus: 'stopped',
+          statusText: event.message ?? 'Microphone capture read loop stopped.',
+          events: events,
+        );
+      case 'microphoneCaptureStopRequested':
+        state = state.copyWith(
+          micCaptureStatus: 'stopping',
+          micReadStatus: 'stop requested',
+          statusText: event.message ?? 'Stopping Android microphone capture.',
+          events: events,
+        );
+      case 'microphoneCaptureStopped':
+        state = state.copyWith(
+          status: AndroidCaptureSmokeTestStatus.playbackCaptureStopped,
+          micCaptureStatus: 'stopped',
+          micReadStatus: 'stopped',
+          statusText: event.message ?? 'Microphone capture stopped.',
+          events: events,
+        );
       case 'playbackReadStopped':
         state = state.copyWith(
           playbackReadStatus: 'stopped',
@@ -539,6 +743,8 @@ class AndroidCaptureSmokeTestController
         serviceStatus: 'stopped',
         systemPlaybackStatus: 'stopped',
         playbackReadStatus: 'stopped',
+        micCaptureStatus: 'stopped',
+        micReadStatus: 'stopped',
         statusText: warning,
         warnings: List<String>.unmodifiable(<String>[
           warning,
@@ -558,6 +764,8 @@ class AndroidCaptureSmokeTestController
       serviceStatus: 'stopped',
       systemPlaybackStatus: 'stopped',
       playbackReadStatus: 'stopped',
+      micCaptureStatus: 'stopped',
+      micReadStatus: 'stopped',
       statusText: 'Android live capture foreground service stopped.',
       events: events,
     );
@@ -591,6 +799,10 @@ String? _audioRecordDetails(LiveCaptureEvent event) {
   final bufferSizeBytes = event.bufferSizeBytes;
   if (bufferSizeBytes != null) {
     parts.add('$bufferSizeBytes B buffer');
+  }
+  final audioSource = event.audioSource;
+  if (audioSource != null) {
+    parts.add(audioSource);
   }
   return parts.isEmpty ? null : parts.join(' - ');
 }

@@ -54,6 +54,7 @@ object LiveCaptureStatusBus {
         isSilent: Boolean,
         source: String,
         sampleRateHz: Int,
+        fields: Map<String, Any?> = emptyMap(),
     ) {
         emit(
             type = "audioLevel",
@@ -62,7 +63,7 @@ object LiveCaptureStatusBus {
                 "isSilent" to isSilent,
                 "source" to source,
                 "sampleRateHz" to sampleRateHz,
-            ),
+            ) + fields,
         )
     }
 

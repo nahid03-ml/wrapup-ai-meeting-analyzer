@@ -41,6 +41,15 @@ class AndroidCaptureSmokeTestState {
     this.hasPlaybackFirstFrameRead = false,
     this.latestReadResult,
     this.audioRecordDetails,
+    this.micCaptureStatus = 'not started',
+    this.micReadStatus = 'not started',
+    this.hasMicFirstFrameRead = false,
+    this.latestMicReadResult,
+    this.micAudioRecordDetails,
+    this.micAudioLevel = 0.0,
+    this.isMicSilent = true,
+    this.micAudioSampleRateHz,
+    this.micAudioSource,
     this.systemAudioLevel = 0.0,
     this.isSystemAudioSilent = true,
     this.systemAudioSampleRateHz,
@@ -67,6 +76,15 @@ class AndroidCaptureSmokeTestState {
   final bool hasPlaybackFirstFrameRead;
   final int? latestReadResult;
   final String? audioRecordDetails;
+  final String micCaptureStatus;
+  final String micReadStatus;
+  final bool hasMicFirstFrameRead;
+  final int? latestMicReadResult;
+  final String? micAudioRecordDetails;
+  final double micAudioLevel;
+  final bool isMicSilent;
+  final int? micAudioSampleRateHz;
+  final String? micAudioSource;
   final double systemAudioLevel;
   final bool isSystemAudioSilent;
   final int? systemAudioSampleRateHz;
@@ -82,6 +100,10 @@ class AndroidCaptureSmokeTestState {
         !isRequestingProjection &&
         !isServiceRunning;
   }
+
+  bool get canRunSystemPlayback => canRun;
+
+  bool get canRunMicrophone => canRun;
 
   bool get canStop =>
       isServiceRunning ||
@@ -142,6 +164,19 @@ class AndroidCaptureSmokeTestState {
     bool clearLatestReadResult = false,
     String? audioRecordDetails,
     bool clearAudioRecordDetails = false,
+    String? micCaptureStatus,
+    String? micReadStatus,
+    bool? hasMicFirstFrameRead,
+    int? latestMicReadResult,
+    bool clearLatestMicReadResult = false,
+    String? micAudioRecordDetails,
+    bool clearMicAudioRecordDetails = false,
+    double? micAudioLevel,
+    bool? isMicSilent,
+    int? micAudioSampleRateHz,
+    bool clearMicAudioSampleRateHz = false,
+    String? micAudioSource,
+    bool clearMicAudioSource = false,
     double? systemAudioLevel,
     bool? isSystemAudioSilent,
     int? systemAudioSampleRateHz,
@@ -180,6 +215,24 @@ class AndroidCaptureSmokeTestState {
       audioRecordDetails: clearAudioRecordDetails
           ? null
           : audioRecordDetails ?? this.audioRecordDetails,
+      micCaptureStatus: micCaptureStatus ?? this.micCaptureStatus,
+      micReadStatus: micReadStatus ?? this.micReadStatus,
+      hasMicFirstFrameRead:
+          hasMicFirstFrameRead ?? this.hasMicFirstFrameRead,
+      latestMicReadResult: clearLatestMicReadResult
+          ? null
+          : latestMicReadResult ?? this.latestMicReadResult,
+      micAudioRecordDetails: clearMicAudioRecordDetails
+          ? null
+          : micAudioRecordDetails ?? this.micAudioRecordDetails,
+      micAudioLevel: micAudioLevel ?? this.micAudioLevel,
+      isMicSilent: isMicSilent ?? this.isMicSilent,
+      micAudioSampleRateHz: clearMicAudioSampleRateHz
+          ? null
+          : micAudioSampleRateHz ?? this.micAudioSampleRateHz,
+      micAudioSource: clearMicAudioSource
+          ? null
+          : micAudioSource ?? this.micAudioSource,
       systemAudioLevel: systemAudioLevel ?? this.systemAudioLevel,
       isSystemAudioSilent: isSystemAudioSilent ?? this.isSystemAudioSilent,
       systemAudioSampleRateHz: clearSystemAudioSampleRateHz

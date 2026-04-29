@@ -69,7 +69,7 @@ class _AndroidCaptureSmokeTestPanelState
           ),
           const SizedBox(height: AppSpacing.sm),
           Text(
-            'This Phase 6F proof captures Android system playback only. Microphone capture is not active yet.',
+            'These proofs check Android system playback and microphone capture separately. They do not mix audio or stream transcription yet.',
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
               color: AppColors.textSecondary,
               height: 1.35,
@@ -91,6 +91,8 @@ class _AndroidCaptureSmokeTestPanelState
           ),
           _StatusRow(label: 'Projection', value: state.projectionStatus),
           _StatusRow(label: 'Service', value: state.serviceStatus),
+          const SizedBox(height: AppSpacing.md),
+          _SectionTitle(text: 'System playback proof'),
           _StatusRow(
             label: 'System playback',
             value: state.systemPlaybackStatus,
@@ -119,7 +121,50 @@ class _AndroidCaptureSmokeTestPanelState
               value: state.audioRecordDetails!,
             ),
           const SizedBox(height: AppSpacing.sm),
-          _AudioLevelMeter(state: state),
+          _AudioLevelMeter(
+            label: 'System audio level',
+            level: state.systemAudioLevel,
+            isSilent: state.isSystemAudioSilent,
+          ),
+          const SizedBox(height: AppSpacing.md),
+          _SectionTitle(text: 'Microphone proof'),
+          Text(
+            'This checks microphone capture only. It does not mix mic with system audio yet.',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: AppColors.textMuted,
+              height: 1.35,
+            ),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          _StatusRow(label: 'Microphone', value: state.micCaptureStatus),
+          _StatusRow(label: 'Mic read', value: state.micReadStatus),
+          _StatusRow(
+            label: 'Mic first frame',
+            value: state.hasMicFirstFrameRead ? 'yes' : 'no',
+          ),
+          if (state.latestMicReadResult != null)
+            _StatusRow(
+              label: 'Mic latest read',
+              value: state.latestMicReadResult.toString(),
+            ),
+          if (state.micAudioSampleRateHz != null)
+            _StatusRow(
+              label: 'Mic AudioRecord rate',
+              value: '${state.micAudioSampleRateHz} Hz',
+            ),
+          if (state.micAudioSource != null)
+            _StatusRow(label: 'Mic source', value: state.micAudioSource!),
+          if (state.micAudioRecordDetails != null)
+            _StatusRow(
+              label: 'Mic AudioRecord',
+              value: state.micAudioRecordDetails!,
+            ),
+          const SizedBox(height: AppSpacing.sm),
+          _AudioLevelMeter(
+            label: 'Mic level',
+            level: state.micAudioLevel,
+            isSilent: state.isMicSilent,
+          ),
           const SizedBox(height: AppSpacing.sm),
           Text(
             state.versionHelperText,
@@ -147,16 +192,25 @@ class _AndroidCaptureSmokeTestPanelState
             ),
           ],
           const SizedBox(height: AppSpacing.lg),
-          Row(
-            children: [
-              Expanded(
-                child: FilledButton.icon(
-                  onPressed: state.canRun ? controller.runSmokeTest : null,
-                  icon: const Icon(Icons.verified_user_outlined),
-                  label: const Text('Test Android capture permission'),
-                ),
-              ),
-            ],
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              onPressed: state.canRunSystemPlayback
+                  ? controller.runSystemPlaybackTest
+                  : null,
+              icon: const Icon(Icons.graphic_eq_outlined),
+              label: const Text('Test system audio capture'),
+            ),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.tonalIcon(
+              onPressed:
+                  state.canRunMicrophone ? controller.runMicrophoneTest : null,
+              icon: const Icon(Icons.mic_outlined),
+              label: const Text('Test microphone capture'),
+            ),
           ),
           const SizedBox(height: AppSpacing.sm),
           SizedBox(
@@ -177,6 +231,26 @@ class _AndroidCaptureSmokeTestPanelState
             ),
           ],
         ],
+      ),
+    );
+  }
+}
+
+class _SectionTitle extends StatelessWidget {
+  const _SectionTitle({required this.text});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppSpacing.xs),
+      child: Text(
+        text,
+        style: Theme.of(context).textTheme.titleSmall?.copyWith(
+          color: AppColors.textPrimary,
+          fontWeight: FontWeight.w800,
+        ),
       ),
     );
   }
@@ -246,17 +320,21 @@ class _StatusBanner extends StatelessWidget {
 }
 
 class _AudioLevelMeter extends StatelessWidget {
-  const _AudioLevelMeter({required this.state});
+  const _AudioLevelMeter({
+    required this.label,
+    required this.level,
+    required this.isSilent,
+  });
 
-  final AndroidCaptureSmokeTestState state;
+  final String label;
+  final double level;
+  final bool isSilent;
 
   @override
   Widget build(BuildContext context) {
-    final level = state.systemAudioLevel.clamp(0.0, 1.0).toDouble();
-    final percent = (level * 100).round();
-    final color = state.isSystemAudioSilent
-        ? AppColors.warning
-        : AppColors.success;
+    final normalizedLevel = level.clamp(0.0, 1.0).toDouble();
+    final percent = (normalizedLevel * 100).round();
+    final color = isSilent ? AppColors.warning : AppColors.success;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -265,14 +343,14 @@ class _AudioLevelMeter extends StatelessWidget {
           children: [
             Expanded(
               child: Text(
-                'System audio level',
+                label,
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
                   color: AppColors.textMuted,
                 ),
               ),
             ),
             Text(
-              state.isSystemAudioSilent ? '$percent% · silent' : '$percent%',
+              isSilent ? '$percent% · silent' : '$percent%',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                 color: AppColors.textPrimary,
                 fontWeight: FontWeight.w700,
@@ -284,7 +362,7 @@ class _AudioLevelMeter extends StatelessWidget {
         ClipRRect(
           borderRadius: BorderRadius.circular(AppSpacing.radiusSm),
           child: LinearProgressIndicator(
-            value: level,
+            value: normalizedLevel,
             minHeight: 8,
             backgroundColor: AppColors.border,
             color: color,

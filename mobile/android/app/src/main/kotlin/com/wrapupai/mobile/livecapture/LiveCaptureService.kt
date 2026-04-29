@@ -22,6 +22,7 @@ class LiveCaptureService : Service() {
     private val serviceStoppedEmitted = AtomicBoolean(false)
     private var mediaProjection: MediaProjection? = null
     private var playbackCapture: SystemPlaybackAudioCapture? = null
+    private var microphoneCapture: MicrophoneAudioCapture? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -43,22 +44,26 @@ class LiveCaptureService : Service() {
             }
         }
 
+        val config = LiveCaptureConfig.fromIntent(intent)
+        stopStarted.set(false)
+        serviceStoppedEmitted.set(false)
+
         return try {
-            startAsForeground()
+            startAsForeground(config)
             running = true
             LiveCaptureStatusBus.emitStatus(
                 "serviceStarted",
-                "WrapUp AI is checking Android system audio capture.",
+                serviceStartedMessage(config),
             )
-            startPlaybackCapture(intent, startId)
+            startRequestedCaptures(intent, config, startId)
             START_STICKY
         } catch (error: SecurityException) {
             running = false
             val message = error.message
-                ?: "Foreground service permission denied for mediaProjection type."
+                ?: "Foreground service permission denied for ${foregroundServiceTypeLabel(config)} type."
             LiveCaptureStatusBus.emitError(
                 "foregroundServiceSecurityError",
-                "mediaProjection foreground service type failed: $message",
+                "${foregroundServiceTypeLabel(config)} foreground service type failed: $message",
             )
             stopSelf(startId)
             START_NOT_STICKY
@@ -81,28 +86,47 @@ class LiveCaptureService : Service() {
         super.onDestroy()
     }
 
-    private fun startAsForeground() {
+    private fun startAsForeground(config: LiveCaptureConfig) {
         ensureNotificationChannel()
         val notification = buildNotification()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             startForeground(
                 NOTIFICATION_ID,
                 notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION,
+                foregroundServiceType(config),
             )
         } else {
             startForeground(NOTIFICATION_ID, notification)
         }
     }
 
-    private fun startPlaybackCapture(intent: Intent, startId: Int) {
-        val config = LiveCaptureConfig.fromIntent(intent)
-        if (config.captureMicrophone) {
+    private fun startRequestedCaptures(
+        intent: Intent,
+        config: LiveCaptureConfig,
+        startId: Int,
+    ) {
+        if (config.captureSystemAudio && config.captureMicrophone) {
             LiveCaptureStatusBus.emitWarning(
-                "Microphone capture is not enabled in Phase 6F.",
-                "microphoneCaptureDeferred",
+                "Combined mic + system capture is deferred until Phase 6H.",
+                "combinedCaptureDeferred",
             )
         }
+
+        if (config.captureSystemAudio) {
+            startPlaybackCapture(intent, startId)
+        } else if (config.captureMicrophone) {
+            startMicrophoneCapture(config, startId)
+        } else {
+            LiveCaptureStatusBus.emitWarning(
+                "No Android capture source was enabled.",
+                "captureSourceMissing",
+            )
+            stopCaptureAndService(reason = "captureSourceMissing", startId = startId)
+        }
+    }
+
+    private fun startPlaybackCapture(intent: Intent, startId: Int) {
+        val config = LiveCaptureConfig.fromIntent(intent)
         if (!config.captureSystemAudio) {
             LiveCaptureStatusBus.emitWarning(
                 "System playback capture is disabled in this capture config.",
@@ -218,6 +242,75 @@ class LiveCaptureService : Service() {
         }
     }
 
+    private fun startMicrophoneCapture(config: LiveCaptureConfig, startId: Int) {
+        microphoneCapture = MicrophoneAudioCapture(
+            config = config,
+            listener = object : MicrophoneAudioCapture.Listener {
+                override fun onMicrophoneCaptureStarting() {
+                    LiveCaptureStatusBus.emitStatus(
+                        LiveCaptureAudioContract.STATUS_MICROPHONE_CAPTURE_STARTING,
+                        "Starting Android microphone AudioRecord.",
+                    )
+                }
+
+                override fun onMicrophoneCaptureStarted(
+                    sampleRateHz: Int,
+                    audioSourceName: String,
+                ) {
+                    LiveCaptureStatusBus.emitStatus(
+                        LiveCaptureAudioContract.STATUS_MICROPHONE_CAPTURE_STARTED,
+                        "Microphone AudioRecord started at $sampleRateHz Hz.",
+                        mapOf(
+                            "sampleRateHz" to sampleRateHz,
+                            "audioSource" to audioSourceName,
+                        ),
+                    )
+                }
+
+                override fun onMicrophoneAudioLevel(
+                    level: Double,
+                    isSilent: Boolean,
+                    sampleRateHz: Int,
+                    audioSourceName: String,
+                ) {
+                    LiveCaptureStatusBus.emitAudioLevel(
+                        level = level,
+                        isSilent = isSilent,
+                        source = LiveCaptureAudioContract.SOURCE_MICROPHONE,
+                        sampleRateHz = sampleRateHz,
+                        fields = mapOf("audioSource" to audioSourceName),
+                    )
+                }
+
+                override fun onMicrophoneCaptureStatus(
+                    status: String,
+                    message: String?,
+                    fields: Map<String, Any?>,
+                ) {
+                    LiveCaptureStatusBus.emitStatus(status, message, fields)
+                }
+
+                override fun onMicrophoneCaptureWarning(message: String, code: String?) {
+                    LiveCaptureStatusBus.emitWarning(message, code)
+                }
+
+                override fun onMicrophoneCaptureError(code: String, message: String) {
+                    LiveCaptureStatusBus.emitError(code, message)
+                    stopCaptureAndService(reason = "microphoneError", startId = startId)
+                }
+
+                override fun onMicrophoneCaptureStopped() {
+                    LiveCaptureStatusBus.emitStatus(
+                        LiveCaptureAudioContract.STATUS_MICROPHONE_CAPTURE_STOPPED,
+                        "Microphone capture stopped.",
+                    )
+                }
+            },
+        ).also { capture ->
+            capture.start()
+        }
+    }
+
     private fun stopCaptureAndService(
         reason: String,
         startId: Int? = null,
@@ -233,6 +326,10 @@ class LiveCaptureService : Service() {
             val capture = playbackCapture
             playbackCapture = null
             capture?.stop()
+
+            val micCapture = microphoneCapture
+            microphoneCapture = null
+            micCapture?.stop()
 
             val projection = mediaProjection
             mediaProjection = null
@@ -264,6 +361,37 @@ class LiveCaptureService : Service() {
                 mapOf("reason" to reason),
             )
             LiveCaptureStatusBus.emitStopped(reason)
+        }
+    }
+
+    private fun foregroundServiceType(config: LiveCaptureConfig): Int {
+        return when {
+            config.captureSystemAudio && !config.captureMicrophone ->
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+            !config.captureSystemAudio && config.captureMicrophone ->
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+            config.captureSystemAudio && config.captureMicrophone ->
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+            else -> ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+        }
+    }
+
+    private fun foregroundServiceTypeLabel(config: LiveCaptureConfig): String {
+        return when {
+            config.captureSystemAudio && !config.captureMicrophone -> "mediaProjection"
+            !config.captureSystemAudio && config.captureMicrophone -> "microphone"
+            config.captureSystemAudio && config.captureMicrophone -> "mediaProjection"
+            else -> "mediaProjection"
+        }
+    }
+
+    private fun serviceStartedMessage(config: LiveCaptureConfig): String {
+        return when {
+            config.captureSystemAudio && !config.captureMicrophone ->
+                "WrapUp AI is checking Android system audio capture."
+            !config.captureSystemAudio && config.captureMicrophone ->
+                "WrapUp AI is checking Android microphone capture."
+            else -> "WrapUp AI is checking Android live capture."
         }
     }
 
@@ -346,16 +474,20 @@ class LiveCaptureService : Service() {
 
         fun start(
             context: Context,
-            resultCode: Int,
-            projectionData: Intent,
+            resultCode: Int?,
+            projectionData: Intent?,
             config: LiveCaptureConfig,
         ) {
             val intent = config.addToIntent(
                 Intent(context, LiveCaptureService::class.java)
-                    .setAction(ACTION_START)
-                    .putExtra(EXTRA_PROJECTION_RESULT_CODE, resultCode)
-                    .putExtra(EXTRA_PROJECTION_DATA, projectionData),
+                    .setAction(ACTION_START),
             )
+            if (resultCode != null) {
+                intent.putExtra(EXTRA_PROJECTION_RESULT_CODE, resultCode)
+            }
+            if (projectionData != null) {
+                intent.putExtra(EXTRA_PROJECTION_DATA, projectionData)
+            }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 context.startForegroundService(intent)
             } else {

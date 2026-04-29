@@ -7,6 +7,7 @@ object LiveCaptureAudioContract {
     const val BYTES_PER_SAMPLE = 2
 
     const val SOURCE_SYSTEM_PLAYBACK = "systemPlayback"
+    const val SOURCE_MICROPHONE = "microphone"
 
     const val LEVEL_EMIT_INTERVAL_MS = 250L
     const val NO_DATA_STATUS_INTERVAL_MS = 2000L
@@ -22,6 +23,21 @@ object LiveCaptureAudioContract {
     const val STATUS_PLAYBACK_CAPTURE_STOP_REQUESTED = "playbackCaptureStopRequested"
     const val STATUS_PLAYBACK_CAPTURE_STOPPED = "playbackCaptureStopped"
     const val STATUS_SERVICE_STOP_REQUESTED = "serviceStopRequested"
+
+    const val STATUS_MICROPHONE_CAPTURE_STARTING = "microphoneCaptureStarting"
+    const val STATUS_MICROPHONE_AUDIO_RECORD_BUILT = "microphoneAudioRecordBuilt"
+    const val STATUS_MICROPHONE_AUDIO_RECORD_START_REQUESTED =
+        "microphoneAudioRecordStartRequested"
+    const val STATUS_MICROPHONE_AUDIO_RECORD_RECORDING = "microphoneAudioRecordRecording"
+    const val STATUS_MICROPHONE_CAPTURE_STARTED = "microphoneCaptureStarted"
+    const val STATUS_MICROPHONE_CAPTURE_STOP_REQUESTED = "microphoneCaptureStopRequested"
+    const val STATUS_MICROPHONE_CAPTURE_STOPPED = "microphoneCaptureStopped"
+    const val STATUS_MICROPHONE_READ_STARTED = "microphoneReadStarted"
+    const val STATUS_MICROPHONE_READ_NO_DATA = "microphoneReadNoData"
+    const val STATUS_MICROPHONE_FIRST_FRAME_READ = "microphoneFirstFrameRead"
+    const val STATUS_MICROPHONE_READ_STOPPED = "microphoneReadStopped"
+    const val STATUS_MICROPHONE_AUDIO_DETECTED = "microphoneAudioDetected"
+
     const val STATUS_PLAYBACK_READ_STARTED = "playbackReadStarted"
     const val STATUS_PLAYBACK_READ_NO_DATA = "playbackReadNoData"
     const val STATUS_PLAYBACK_FIRST_FRAME_READ = "playbackFirstFrameRead"
@@ -30,6 +46,8 @@ object LiveCaptureAudioContract {
 
     const val WARNING_SYSTEM_PLAYBACK_SILENT = "systemPlaybackSilent"
     const val WARNING_PLAYBACK_CAPTURE_NO_FRAMES = "playbackCaptureNoFrames"
+    const val WARNING_MICROPHONE_SILENT = "microphoneSilent"
+    const val WARNING_MICROPHONE_CAPTURE_NO_FRAMES = "microphoneCaptureNoFrames"
 
     const val ERROR_PLAYBACK_CAPTURE_UNSUPPORTED = "playbackCaptureUnsupported"
     const val ERROR_PROJECTION_UNAVAILABLE = "projectionUnavailable"
@@ -37,4 +55,8 @@ object LiveCaptureAudioContract {
     const val ERROR_AUDIO_RECORD_START_FAILED = "audioRecordStartFailed"
     const val ERROR_PLAYBACK_CAPTURE_READ_FAILED = "playbackCaptureReadFailed"
     const val ERROR_PLAYBACK_CAPTURE_SECURITY = "playbackCaptureSecurityError"
+    const val ERROR_MICROPHONE_AUDIO_RECORD_INIT_FAILED = "microphoneAudioRecordInitFailed"
+    const val ERROR_MICROPHONE_AUDIO_RECORD_START_FAILED = "microphoneAudioRecordStartFailed"
+    const val ERROR_MICROPHONE_CAPTURE_READ_FAILED = "microphoneCaptureReadFailed"
+    const val ERROR_MICROPHONE_CAPTURE_SECURITY = "microphoneCaptureSecurityError"
 }
