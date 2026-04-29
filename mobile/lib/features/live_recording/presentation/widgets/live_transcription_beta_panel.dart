@@ -1,11 +1,18 @@
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../../core/config/env.dart';
 import '../../../../core/languages/supported_languages.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../application/live_recording_controller_provider.dart';
 import '../../application/live_recording_state.dart';
+
+const _liveWebSocketPathTemplate = '/ws/live-transcription/{session_id}';
+const _vercelBackendWarning =
+    'Backend URL appears to be a Vercel frontend URL. Live transcription needs '
+    'the FastAPI backend host that supports WebSocket.';
 
 class LiveTranscriptionBetaPanel extends ConsumerStatefulWidget {
   const LiveTranscriptionBetaPanel({super.key});
@@ -19,6 +26,9 @@ class _LiveTranscriptionBetaPanelState
     extends ConsumerState<LiveTranscriptionBetaPanel> {
   late final TextEditingController _titleController;
   late String _languageCode;
+  bool _healthChecking = false;
+  bool? _healthOk;
+  String? _healthMessage;
 
   @override
   void initState() {
@@ -37,13 +47,15 @@ class _LiveTranscriptionBetaPanelState
   Widget build(BuildContext context) {
     final state = ref.watch(liveRecordingControllerProvider);
     final controller = ref.read(liveRecordingControllerProvider.notifier);
-    final isBusy = state is LiveCreatingSession ||
+    final isBusy =
+        state is LiveCreatingSession ||
         state is LiveConnecting ||
         state is LiveStartingCapture ||
         state is LiveStreaming ||
         state is LiveStopping;
     final canStart = !isBusy || state is LiveDone || state is LiveFailed;
     final canStop = state is LiveStreaming || state is LiveStartingCapture;
+    final diagnostics = _LiveBackendDiagnostics.fromBackendUrl(Env.backendUrl);
 
     return Container(
       padding: const EdgeInsets.all(AppSpacing.lg),
@@ -77,6 +89,16 @@ class _LiveTranscriptionBetaPanelState
               color: AppColors.textSecondary,
               height: 1.35,
             ),
+          ),
+          const SizedBox(height: AppSpacing.md),
+          _BackendDiagnosticsCard(
+            diagnostics: diagnostics,
+            healthChecking: _healthChecking,
+            healthOk: _healthOk,
+            healthMessage: _healthMessage,
+            onTestHealth: _healthChecking
+                ? null
+                : () => _testBackendHealth(diagnostics.healthUri),
           ),
           const SizedBox(height: AppSpacing.md),
           TextField(
@@ -174,9 +196,9 @@ class _LiveTranscriptionBetaPanelState
             child: FilledButton.icon(
               onPressed: canStart
                   ? () => controller.startAndroidMixedLive(
-                        title: _titleController.text,
-                        languageCode: _languageCode,
-                      )
+                      title: _titleController.text,
+                      languageCode: _languageCode,
+                    )
                   : null,
               icon: const Icon(Icons.play_arrow_outlined),
               label: const Text('Start live transcription'),
@@ -193,6 +215,193 @@ class _LiveTranscriptionBetaPanelState
           ),
         ],
       ),
+    );
+  }
+
+  Future<void> _testBackendHealth(Uri healthUri) async {
+    setState(() {
+      _healthChecking = true;
+      _healthOk = null;
+      _healthMessage = null;
+    });
+
+    final dio = Dio(
+      BaseOptions(
+        connectTimeout: const Duration(seconds: 8),
+        receiveTimeout: const Duration(seconds: 8),
+        sendTimeout: const Duration(seconds: 8),
+        headers: {'Accept': 'application/json'},
+      ),
+    );
+
+    try {
+      final response = await dio.getUri<dynamic>(healthUri);
+
+      if (!mounted) return;
+      final statusCode = response.statusCode;
+      final ok = statusCode != null && statusCode >= 200 && statusCode < 300;
+      setState(() {
+        _healthChecking = false;
+        _healthOk = ok;
+        _healthMessage = ok
+            ? 'HTTP health check passed.'
+            : 'HTTP health check returned status ${statusCode ?? 'unknown'}.';
+      });
+    } on DioException catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _healthChecking = false;
+        _healthOk = false;
+        _healthMessage = _safeHealthFailureMessage(error);
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _healthChecking = false;
+        _healthOk = false;
+        _healthMessage = 'HTTP health check failed.';
+      });
+    } finally {
+      dio.close();
+    }
+  }
+}
+
+class _BackendDiagnosticsCard extends StatelessWidget {
+  const _BackendDiagnosticsCard({
+    required this.diagnostics,
+    required this.healthChecking,
+    required this.healthOk,
+    required this.healthMessage,
+    required this.onTestHealth,
+  });
+
+  final _LiveBackendDiagnostics diagnostics;
+  final bool healthChecking;
+  final bool? healthOk;
+  final String? healthMessage;
+  final VoidCallback? onTestHealth;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(AppSpacing.md),
+      decoration: BoxDecoration(
+        color: AppColors.background.withValues(alpha: 0.42),
+        borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Backend diagnostics',
+            style: Theme.of(context).textTheme.titleSmall?.copyWith(
+              color: AppColors.textPrimary,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          _StatusRow(label: 'Backend host', value: diagnostics.host),
+          _StatusRow(label: 'Backend scheme', value: diagnostics.backendScheme),
+          _StatusRow(
+            label: 'WebSocket scheme',
+            value: diagnostics.webSocketScheme,
+          ),
+          const _StatusRow(
+            label: 'WebSocket path',
+            value: _liveWebSocketPathTemplate,
+          ),
+          _StatusRow(
+            label: 'Sanitized WebSocket target',
+            value: diagnostics.sanitizedWebSocketTarget,
+          ),
+          if (diagnostics.isLikelyVercelFrontend) ...[
+            const SizedBox(height: AppSpacing.sm),
+            const _MessageBox(
+              icon: Icons.warning_amber_outlined,
+              color: AppColors.warning,
+              text: _vercelBackendWarning,
+            ),
+          ],
+          const SizedBox(height: AppSpacing.sm),
+          Text(
+            'HTTP health only. This does not test WebSocket streaming.',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: AppColors.textSecondary,
+              height: 1.35,
+            ),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: onTestHealth,
+              icon: healthChecking
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.health_and_safety_outlined),
+              label: Text(
+                healthChecking
+                    ? 'Testing backend health...'
+                    : 'Test backend health',
+              ),
+            ),
+          ),
+          if (healthMessage != null) ...[
+            const SizedBox(height: AppSpacing.sm),
+            _MessageBox(
+              icon: healthOk == true
+                  ? Icons.check_circle_outline
+                  : Icons.error_outline,
+              color: healthOk == true
+                  ? AppColors.success
+                  : AppColors.destructive,
+              text: healthMessage!,
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _LiveBackendDiagnostics {
+  const _LiveBackendDiagnostics({
+    required this.backendScheme,
+    required this.host,
+    required this.webSocketScheme,
+    required this.sanitizedWebSocketTarget,
+    required this.healthUri,
+    required this.isLikelyVercelFrontend,
+  });
+
+  final String backendScheme;
+  final String host;
+  final String webSocketScheme;
+  final String sanitizedWebSocketTarget;
+  final Uri healthUri;
+  final bool isLikelyVercelFrontend;
+
+  factory _LiveBackendDiagnostics.fromBackendUrl(String backendUrl) {
+    final uri = Uri.parse(backendUrl.trim());
+    final backendScheme = uri.scheme.isEmpty ? 'unknown' : uri.scheme;
+    final host = uri.host.isEmpty ? 'unknown' : uri.host;
+    final webSocketScheme = _webSocketSchemeFor(backendScheme);
+    return _LiveBackendDiagnostics(
+      backendScheme: backendScheme,
+      host: host,
+      webSocketScheme: webSocketScheme,
+      sanitizedWebSocketTarget:
+          '$webSocketScheme://$host$_liveWebSocketPathTemplate',
+      healthUri: _healthUriFor(uri),
+      isLikelyVercelFrontend:
+          host.toLowerCase().endsWith('.vercel.app') ||
+          host.toLowerCase() == 'vercel.app',
     );
   }
 }
@@ -212,9 +421,9 @@ class _StatusRow extends StatelessWidget {
           Expanded(
             child: Text(
               label,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: AppColors.textMuted,
-              ),
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(color: AppColors.textMuted),
             ),
           ),
           const SizedBox(width: AppSpacing.md),
@@ -281,10 +490,9 @@ class _MessageBox extends StatelessWidget {
         Expanded(
           child: Text(
             text,
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: color,
-              height: 1.35,
-            ),
+            style: Theme.of(
+              context,
+            ).textTheme.bodySmall?.copyWith(color: color, height: 1.35),
           ),
         ),
       ],
@@ -305,12 +513,20 @@ String _sessionStatus(LiveRecordingState state) {
 }
 
 String _statusText(LiveRecordingState state) {
-  if (state is LiveIdle) return 'Ready to start a live transcription beta session.';
-  if (state is LiveCreatingSession) return 'Creating live meeting and session rows.';
+  if (state is LiveIdle) {
+    return 'Ready to start a live transcription beta session.';
+  }
+  if (state is LiveCreatingSession) {
+    return 'Creating live meeting and session rows.';
+  }
   if (state is LiveConnecting) return 'Opening live transcription WebSocket.';
   if (state is LiveStartingCapture) return 'Starting Android mixed capture.';
-  if (state is LiveStreaming) return 'Streaming mixed PCM to live transcription.';
-  if (state is LiveStopping) return 'Stopping capture and waiting for backend done.';
+  if (state is LiveStreaming) {
+    return 'Streaming mixed PCM to live transcription.';
+  }
+  if (state is LiveStopping) {
+    return 'Stopping capture and waiting for backend done.';
+  }
   if (state is LiveDone) {
     return state.finalTranscript.isEmpty
         ? 'Live transcription stopped. Final processing may still be completing.'
@@ -330,4 +546,44 @@ Color _statusColor(LiveRecordingState state) {
     return AppColors.warning;
   }
   return AppColors.cyan;
+}
+
+String _webSocketSchemeFor(String backendScheme) {
+  return switch (backendScheme.toLowerCase()) {
+    'http' => 'ws',
+    'https' => 'wss',
+    'ws' => 'ws',
+    'wss' => 'wss',
+    _ => 'unknown',
+  };
+}
+
+Uri _healthUriFor(Uri backendUri) {
+  final basePathSegments = backendUri.pathSegments
+      .where((segment) => segment.trim().isNotEmpty)
+      .toList(growable: false);
+
+  return Uri(
+    scheme: backendUri.scheme,
+    host: backendUri.host,
+    port: backendUri.hasPort ? backendUri.port : null,
+    pathSegments: <String>[...basePathSegments, 'healthz'],
+  );
+}
+
+String _safeHealthFailureMessage(DioException error) {
+  final statusCode = error.response?.statusCode;
+  if (statusCode != null) {
+    return 'HTTP health check returned status $statusCode.';
+  }
+
+  return switch (error.type) {
+    DioExceptionType.connectionTimeout ||
+    DioExceptionType.sendTimeout ||
+    DioExceptionType.receiveTimeout => 'HTTP health check timed out.',
+    DioExceptionType.connectionError => 'HTTP health check could not connect.',
+    DioExceptionType.badCertificate =>
+      'HTTP health check failed TLS validation.',
+    _ => 'HTTP health check failed.',
+  };
 }
