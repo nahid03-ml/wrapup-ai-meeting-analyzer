@@ -13,6 +13,8 @@ class AndroidCaptureSmokeTestController
     extends Notifier<AndroidCaptureSmokeTestState> {
   AndroidLiveCapturePlatform? _platform;
   StreamSubscription<LiveCaptureEvent>? _statusSubscription;
+  Timer? _stopConfirmationTimer;
+  bool _waitingForStopConfirmation = false;
 
   AndroidLiveCapturePlatform get _capturePlatform {
     return _platform ??= AndroidLiveCapturePlatform();
@@ -176,6 +178,8 @@ class AndroidCaptureSmokeTestController
 
   Future<void> stopSmokeTest() async {
     try {
+      _stopConfirmationTimer?.cancel();
+      _waitingForStopConfirmation = true;
       state = state.copyWith(
         statusText: 'Stopping Android live capture foreground service.',
         serviceStatus: 'stopping',
@@ -184,20 +188,19 @@ class AndroidCaptureSmokeTestController
         clearError: true,
       );
       await _capturePlatform.stopCapture();
-      state = state.copyWith(
-        status: AndroidCaptureSmokeTestStatus.serviceStopped,
-        isServiceRunning: false,
-        serviceStatus: 'stopped',
-        systemPlaybackStatus: 'stopped',
-        playbackReadStatus: 'stopped',
-        statusText: 'Android live capture foreground service stopped.',
-      );
+      if (_waitingForStopConfirmation) {
+        _startStopConfirmationTimeout();
+      }
     } on PlatformException catch (error) {
+      _waitingForStopConfirmation = false;
+      _stopConfirmationTimer?.cancel();
       _failWithMessage(
         error.message ?? 'Android capture service could not stop.',
         code: error.code,
       );
     } catch (error) {
+      _waitingForStopConfirmation = false;
+      _stopConfirmationTimer?.cancel();
       _failWithMessage(_messageForError(error));
     }
   }
@@ -252,15 +255,7 @@ class AndroidCaptureSmokeTestController
           events: events,
         );
       case LiveCaptureEventType.stopped:
-        state = state.copyWith(
-          status: AndroidCaptureSmokeTestStatus.serviceStopped,
-          isServiceRunning: false,
-          serviceStatus: 'stopped',
-          systemPlaybackStatus: 'stopped',
-          playbackReadStatus: 'stopped',
-          statusText: 'Android live capture foreground service stopped.',
-          events: events,
-        );
+        _markNativeStopped(events);
       case LiveCaptureEventType.audioLevel:
         _handleAudioLevelEvent(event, events);
       case LiveCaptureEventType.unknown:
@@ -344,6 +339,15 @@ class AndroidCaptureSmokeTestController
           status: AndroidCaptureSmokeTestStatus.serviceStarting,
           serviceStatus: 'starting',
           statusText: 'Starting Android live capture foreground service.',
+          events: events,
+        );
+      case 'stoppingService' || 'serviceStopRequested':
+        state = state.copyWith(
+          serviceStatus: 'stopping',
+          systemPlaybackStatus: 'stopping',
+          playbackReadStatus: 'stop requested',
+          statusText:
+              event.message ?? 'Stopping Android live capture foreground service.',
           events: events,
         );
       case 'serviceStarted':
@@ -478,15 +482,7 @@ class AndroidCaptureSmokeTestController
           events: events,
         );
       case 'serviceStopped':
-        state = state.copyWith(
-          status: AndroidCaptureSmokeTestStatus.serviceStopped,
-          isServiceRunning: false,
-          serviceStatus: 'stopped',
-          systemPlaybackStatus: 'stopped',
-          playbackReadStatus: 'stopped',
-          statusText: 'Android live capture foreground service stopped.',
-          events: events,
-        );
+        _markNativeStopped(events);
       case 'idle':
         state = state.copyWith(events: events);
       default:
@@ -516,6 +512,9 @@ class AndroidCaptureSmokeTestController
   }
 
   Future<void> _dispose() async {
+    _stopConfirmationTimer?.cancel();
+    _stopConfirmationTimer = null;
+    _waitingForStopConfirmation = false;
     await _statusSubscription?.cancel();
     _statusSubscription = null;
     try {
@@ -523,6 +522,45 @@ class AndroidCaptureSmokeTestController
     } catch (_) {
       // Best-effort smoke-test cleanup only.
     }
+  }
+
+  void _startStopConfirmationTimeout() {
+    _stopConfirmationTimer?.cancel();
+    _stopConfirmationTimer = Timer(const Duration(seconds: 3), () {
+      if (!_waitingForStopConfirmation) {
+        return;
+      }
+      _waitingForStopConfirmation = false;
+      const warning =
+          'Stop command sent. Native service did not confirm stop within 3 seconds.';
+      state = state.copyWith(
+        status: AndroidCaptureSmokeTestStatus.serviceStopped,
+        isServiceRunning: false,
+        serviceStatus: 'stopped',
+        systemPlaybackStatus: 'stopped',
+        playbackReadStatus: 'stopped',
+        statusText: warning,
+        warnings: List<String>.unmodifiable(<String>[
+          warning,
+          ...state.warnings,
+        ].take(4)),
+      );
+    });
+  }
+
+  void _markNativeStopped(List<LiveCaptureEvent> events) {
+    _waitingForStopConfirmation = false;
+    _stopConfirmationTimer?.cancel();
+    _stopConfirmationTimer = null;
+    state = state.copyWith(
+      status: AndroidCaptureSmokeTestStatus.serviceStopped,
+      isServiceRunning: false,
+      serviceStatus: 'stopped',
+      systemPlaybackStatus: 'stopped',
+      playbackReadStatus: 'stopped',
+      statusText: 'Android live capture foreground service stopped.',
+      events: events,
+    );
   }
 }
 

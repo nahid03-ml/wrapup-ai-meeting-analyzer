@@ -15,17 +15,32 @@ import android.os.Build
 import android.os.IBinder
 import com.wrapupai.mobile.MainActivity
 import com.wrapupai.mobile.R
+import java.util.concurrent.atomic.AtomicBoolean
 
 class LiveCaptureService : Service() {
+    private val stopStarted = AtomicBoolean(false)
+    private val serviceStoppedEmitted = AtomicBoolean(false)
     private var mediaProjection: MediaProjection? = null
     private var playbackCapture: SystemPlaybackAudioCapture? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
+    override fun onCreate() {
+        super.onCreate()
+        activeService = this
+    }
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action != ACTION_START) {
-            stopSelf(startId)
-            return START_NOT_STICKY
+        when (intent?.action) {
+            ACTION_START -> Unit
+            ACTION_STOP -> {
+                stopCaptureAndService(reason = "actionStop", startId = startId)
+                return START_NOT_STICKY
+            }
+            else -> {
+                stopCaptureAndService(reason = "unknownAction", startId = startId)
+                return START_NOT_STICKY
+            }
         }
 
         return try {
@@ -59,14 +74,10 @@ class LiveCaptureService : Service() {
     }
 
     override fun onDestroy() {
-        playbackCapture?.stop()
-        playbackCapture = null
-        mediaProjection?.stop()
-        mediaProjection = null
-        running = false
-        stopForegroundCompat()
-        LiveCaptureStatusBus.emitStatus("serviceStopped")
-        LiveCaptureStatusBus.emitStopped("serviceStopped")
+        stopCaptureAndService(reason = "serviceDestroyed", shouldStopSelf = false)
+        if (activeService === this) {
+            activeService = null
+        }
         super.onDestroy()
     }
 
@@ -192,7 +203,7 @@ class LiveCaptureService : Service() {
 
                 override fun onPlaybackCaptureError(code: String, message: String) {
                     LiveCaptureStatusBus.emitError(code, message)
-                    stopSelf(startId)
+                    stopCaptureAndService(reason = "playbackError", startId = startId)
                 }
 
                 override fun onPlaybackCaptureStopped() {
@@ -204,6 +215,55 @@ class LiveCaptureService : Service() {
             },
         ).also { capture ->
             capture.start()
+        }
+    }
+
+    private fun stopCaptureAndService(
+        reason: String,
+        startId: Int? = null,
+        shouldStopSelf: Boolean = true,
+    ) {
+        if (stopStarted.compareAndSet(false, true)) {
+            LiveCaptureStatusBus.emitStatus(
+                LiveCaptureAudioContract.STATUS_SERVICE_STOP_REQUESTED,
+                "Stopping Android live capture service.",
+                mapOf("reason" to reason),
+            )
+
+            val capture = playbackCapture
+            playbackCapture = null
+            capture?.stop()
+
+            val projection = mediaProjection
+            mediaProjection = null
+            try {
+                projection?.stop()
+            } catch (_: RuntimeException) {
+                // Projection shutdown is best-effort during service teardown.
+            }
+
+            running = false
+            stopForegroundCompat()
+            emitServiceStoppedOnce(reason)
+        }
+
+        if (shouldStopSelf) {
+            if (startId != null) {
+                stopSelf(startId)
+            } else {
+                stopSelf()
+            }
+        }
+    }
+
+    private fun emitServiceStoppedOnce(reason: String) {
+        if (serviceStoppedEmitted.compareAndSet(false, true)) {
+            LiveCaptureStatusBus.emitStatus(
+                "serviceStopped",
+                "Android live capture service stopped.",
+                mapOf("reason" to reason),
+            )
+            LiveCaptureStatusBus.emitStopped(reason)
         }
     }
 
@@ -270,6 +330,7 @@ class LiveCaptureService : Service() {
 
     companion object {
         private const val ACTION_START = "com.wrapupai.mobile.livecapture.START"
+        private const val ACTION_STOP = "com.wrapupai.mobile.livecapture.STOP"
         private const val CHANNEL_ID = "wrapup_live_capture"
         private const val NOTIFICATION_ID = 6042
         private const val EXTRA_PROJECTION_RESULT_CODE = "projectionResultCode"
@@ -277,6 +338,9 @@ class LiveCaptureService : Service() {
 
         @Volatile
         private var running = false
+
+        @Volatile
+        private var activeService: LiveCaptureService? = null
 
         fun isRunning(): Boolean = running
 
@@ -300,7 +364,16 @@ class LiveCaptureService : Service() {
         }
 
         fun stop(context: Context): Boolean {
-            return context.stopService(Intent(context, LiveCaptureService::class.java))
+            val intent = Intent(context, LiveCaptureService::class.java)
+                .setAction(ACTION_STOP)
+            return try {
+                context.startService(intent) != null
+            } catch (_: RuntimeException) {
+                activeService?.let { service ->
+                    service.stopCaptureAndService(reason = "directStopFallback")
+                    true
+                } ?: false
+            }
         }
     }
 }

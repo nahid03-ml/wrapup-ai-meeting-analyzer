@@ -21,6 +21,7 @@ object LiveCaptureAudioContract {
     const val STATUS_PLAYBACK_CAPTURE_STARTED = "playbackCaptureStarted"
     const val STATUS_PLAYBACK_CAPTURE_STOP_REQUESTED = "playbackCaptureStopRequested"
     const val STATUS_PLAYBACK_CAPTURE_STOPPED = "playbackCaptureStopped"
+    const val STATUS_SERVICE_STOP_REQUESTED = "serviceStopRequested"
     const val STATUS_PLAYBACK_READ_STARTED = "playbackReadStarted"
     const val STATUS_PLAYBACK_READ_NO_DATA = "playbackReadNoData"
     const val STATUS_PLAYBACK_FIRST_FRAME_READ = "playbackFirstFrameRead"
