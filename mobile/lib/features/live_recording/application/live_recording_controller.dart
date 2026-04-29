@@ -2,12 +2,14 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import '../../../core/config/env.dart';
 import '../../../core/languages/supported_languages.dart';
 import '../../../core/providers/supabase_provider.dart';
+import '../../meetings/application/meeting_detail_provider.dart';
 import '../../meetings/application/meetings_provider.dart';
 import '../data/android_live_capture_platform.dart';
 import '../data/live_capture_event.dart';
@@ -21,14 +23,18 @@ import 'live_recording_state.dart';
 import 'live_transcript_line.dart';
 
 const kLiveStopDoneTimeout = Duration(seconds: 30);
+const _backgroundWarning =
+    'Live capture continued while the app was in the background.';
 
-class LiveRecordingController extends Notifier<LiveRecordingState> {
+class LiveRecordingController extends Notifier<LiveRecordingState>
+    with WidgetsBindingObserver {
   LiveWebSocketClient? _client;
   AndroidLiveCapturePlatform? _capturePlatform;
   StreamSubscription<LiveBackendEvent>? _eventSubscription;
   StreamSubscription<Uint8List>? _pcmSubscription;
   StreamSubscription? _captureStatusSubscription;
   Completer<LiveDoneEvent>? _doneCompleter;
+  Completer<void>? _stopCompleter;
 
   String? _meetingId;
   String? _sessionId;
@@ -42,6 +48,11 @@ class LiveRecordingController extends Notifier<LiveRecordingState> {
   int _pcmChunksDropped = 0;
   int _lastPcmChunkBytes = 0;
   DateTime? _lastPcmMetricsPublishedAt;
+  bool _stopMessageSent = false;
+  bool _captureStopRequested = false;
+  bool _failureCleanupStarted = false;
+  bool _lifecycleObserverAttached = false;
+  bool _wasStreamingInBackground = false;
 
   AndroidLiveCapturePlatform get _androidCapturePlatform {
     return _capturePlatform ??= AndroidLiveCapturePlatform();
@@ -49,10 +60,38 @@ class LiveRecordingController extends Notifier<LiveRecordingState> {
 
   @override
   LiveRecordingState build() {
+    if (!_lifecycleObserverAttached) {
+      WidgetsBinding.instance.addObserver(this);
+      _lifecycleObserverAttached = true;
+    }
     ref.onDispose(() {
+      if (_lifecycleObserverAttached) {
+        WidgetsBinding.instance.removeObserver(this);
+        _lifecycleObserverAttached = false;
+      }
       unawaited(_dispose());
     });
     return const LiveIdle();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      if (_wasStreamingInBackground) {
+        _wasStreamingInBackground = false;
+        _addWarning(_backgroundWarning);
+      }
+      return;
+    }
+
+    if (state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.hidden ||
+        state == AppLifecycleState.paused ||
+        state == AppLifecycleState.detached) {
+      if (this.state is LiveStreaming) {
+        _wasStreamingInBackground = true;
+      }
+    }
   }
 
   Future<void> createAndConnect({
@@ -86,7 +125,10 @@ class LiveRecordingController extends Notifier<LiveRecordingState> {
       state = LiveCreatingSession(languageCode: normalizedLanguage);
       final startResult = await ref
           .read(liveSessionRepositoryProvider)
-          .createLiveSession(title: trimmedTitle, languageCode: normalizedLanguage);
+          .createLiveSession(
+            title: trimmedTitle,
+            languageCode: normalizedLanguage,
+          );
 
       _meetingId = startResult.meetingId;
       _sessionId = startResult.sessionId;
@@ -102,7 +144,9 @@ class LiveRecordingController extends Notifier<LiveRecordingState> {
       final openSession = ref.read(currentSessionProvider);
       final accessToken = openSession?.accessToken;
       if (accessToken == null || accessToken.isEmpty) {
-        throw StateError('Authentication session missing. Please log in again.');
+        throw StateError(
+          'Authentication session missing. Please log in again.',
+        );
       }
 
       final webSocketUri = buildLiveTranscriptionWebSocketUri(
@@ -161,7 +205,10 @@ class LiveRecordingController extends Notifier<LiveRecordingState> {
       state = LiveCreatingSession(languageCode: normalizedLanguage);
       final startResult = await ref
           .read(liveSessionRepositoryProvider)
-          .createLiveSession(title: trimmedTitle, languageCode: normalizedLanguage);
+          .createLiveSession(
+            title: trimmedTitle,
+            languageCode: normalizedLanguage,
+          );
 
       _meetingId = startResult.meetingId;
       _sessionId = startResult.sessionId;
@@ -175,7 +222,9 @@ class LiveRecordingController extends Notifier<LiveRecordingState> {
       final openSession = ref.read(currentSessionProvider);
       final accessToken = openSession?.accessToken;
       if (accessToken == null || accessToken.isEmpty) {
-        throw StateError('Authentication session missing. Please log in again.');
+        throw StateError(
+          'Authentication session missing. Please log in again.',
+        );
       }
 
       final webSocketUri = buildLiveTranscriptionWebSocketUri(
@@ -225,6 +274,12 @@ class LiveRecordingController extends Notifier<LiveRecordingState> {
   }
 
   Future<void> stop() async {
+    final activeStop = _stopCompleter;
+    if (activeStop != null) {
+      await activeStop.future;
+      return;
+    }
+
     final client = _client;
     if (client == null) {
       return;
@@ -234,10 +289,9 @@ class LiveRecordingController extends Notifier<LiveRecordingState> {
       state = const LiveFailed(errorMessage: 'Live session is incomplete.');
       return;
     }
-    if (state is LiveStopping) {
-      return;
-    }
 
+    final stopCompleter = Completer<void>();
+    _stopCompleter = stopCompleter;
     _webSocketStatus = 'stopping';
     _captureStatus = 'stopping';
     state = _stoppingState();
@@ -246,28 +300,38 @@ class LiveRecordingController extends Notifier<LiveRecordingState> {
 
     try {
       await _stopAndroidCapture();
-      client.sendStop();
+      _sendStopOnce(client);
       final doneEvent = await doneCompleter.future.timeout(
         kLiveStopDoneTimeout,
       );
       await _closeClient();
       _webSocketStatus = 'closed';
+      _captureStatus = 'stopped';
       state = _doneState(doneEvent: doneEvent);
       _invalidateLiveData();
     } on TimeoutException {
       _warnings = List.unmodifiable(<String>[
         ..._warnings,
-        'Recording stopped, but final processing may still be completing.',
+        'Backend did not finish finalizing in time. The meeting may update shortly.',
       ]);
       await _closeClient();
       _webSocketStatus = 'closed';
+      _captureStatus = 'stopped';
       state = _doneState();
       _invalidateLiveData();
     } catch (error) {
       await _closeClient();
+      _webSocketStatus = 'failed';
+      _captureStatus = 'stopped';
       _setFailed(_messageForError(error), error);
     } finally {
       _doneCompleter = null;
+      if (!stopCompleter.isCompleted) {
+        stopCompleter.complete();
+      }
+      if (identical(_stopCompleter, stopCompleter)) {
+        _stopCompleter = null;
+      }
     }
   }
 
@@ -326,10 +390,16 @@ class LiveRecordingController extends Notifier<LiveRecordingState> {
           completer.completeError(StateError(message));
           return;
         }
-        _setFailed(message, StateError(message));
+        unawaited(
+          _failAfterCleanup(
+            message,
+            StateError(message),
+            webSocketStatus: 'failed',
+          ),
+        );
       case LiveBackendEventType.transcript ||
-            LiveBackendEventType.done ||
-            LiveBackendEventType.unknown:
+          LiveBackendEventType.done ||
+          LiveBackendEventType.unknown:
         _publishActiveState();
     }
   }
@@ -341,19 +411,22 @@ class LiveRecordingController extends Notifier<LiveRecordingState> {
       return;
     }
 
-    state = _doneState(doneEvent: event);
-    unawaited(_closeClient());
-    _invalidateLiveData();
+    unawaited(_finishWithDone(event));
   }
 
   void _handleWebSocketError(Object error, StackTrace stackTrace) {
-    unawaited(_stopAndroidCapture());
     final completer = _doneCompleter;
     if (state is LiveStopping && completer != null && !completer.isCompleted) {
       completer.completeError(error, stackTrace);
       return;
     }
-    _setFailed('Live connection failed.', error);
+    unawaited(
+      _failAfterCleanup(
+        _messageForError(error),
+        error,
+        webSocketStatus: 'failed',
+      ),
+    );
   }
 
   void _handleWebSocketDone() {
@@ -364,19 +437,29 @@ class LiveRecordingController extends Notifier<LiveRecordingState> {
         current is LiveFailed) {
       return;
     }
-    unawaited(_stopAndroidCapture());
-    _setFailed('Live connection closed before recording stopped.', null);
+    unawaited(
+      _failAfterCleanup(
+        'Live connection closed before recording stopped.',
+        StateError('Live connection closed before recording stopped.'),
+        webSocketStatus: 'failed',
+      ),
+    );
   }
 
   Future<void> _prepareAndroidMixedCapture() async {
-    final environment = await _androidCapturePlatform.getAndroidCaptureEnvironment();
+    final environment = await _androidCapturePlatform
+        .getAndroidCaptureEnvironment();
     if (!environment.isAndroid || !environment.isSupported) {
-      throw StateError('Android 10 or newer is required for mixed audio capture.');
+      throw StateError(
+        'Android 10 or newer is required for mixed audio capture.',
+      );
     }
 
     final microphoneStatus = await Permission.microphone.request();
     if (!microphoneStatus.isGranted) {
-      throw StateError('Microphone permission is required for live transcription.');
+      throw StateError(
+        'Microphone permission is required for live transcription.',
+      );
     }
 
     if (environment.requiresNotificationRuntimePermission) {
@@ -425,17 +508,24 @@ class LiveRecordingController extends Notifier<LiveRecordingState> {
         if (event.eventType == LiveCaptureEventType.warning) {
           final message = event.message?.trim();
           if (message != null && message.isNotEmpty) {
-            _warnings = List.unmodifiable(<String>[..._warnings, message]);
+            _addWarning(message, publish: false);
           }
+        }
+        if (event.eventType == LiveCaptureEventType.error) {
+          _handleNativeCaptureError(event);
+          return;
+        }
+        if (event.eventType == LiveCaptureEventType.stopped ||
+            event.status == 'serviceStopped') {
+          _handleNativeCaptureStopped(event);
+          return;
         }
         _publishActiveState();
       },
       onError: (Object error) {
-        _warnings = List.unmodifiable(<String>[
-          ..._warnings,
+        _addWarning(
           'Android capture status stream failed: ${_messageForError(error)}',
-        ]);
-        _publishActiveState();
+        );
       },
     );
   }
@@ -446,7 +536,8 @@ class LiveRecordingController extends Notifier<LiveRecordingState> {
     }
 
     final client = _client;
-    final canSend = client != null &&
+    final canSend =
+        client != null &&
         state is! LiveStopping &&
         state is! LiveDone &&
         state is! LiveFailed;
@@ -481,6 +572,106 @@ class LiveRecordingController extends Notifier<LiveRecordingState> {
     }
     _lastPcmMetricsPublishedAt = now;
     _publishActiveState();
+  }
+
+  Future<void> _finishWithDone(LiveDoneEvent event) async {
+    if (state is LiveDone || state is LiveFailed) {
+      return;
+    }
+    await _stopAndroidCapture();
+    await _closeClient();
+    _webSocketStatus = 'closed';
+    _captureStatus = 'stopped';
+    state = _doneState(doneEvent: event);
+    _doneCompleter = null;
+    _invalidateLiveData();
+  }
+
+  Future<void> _failAfterCleanup(
+    String message,
+    Object? error, {
+    bool sendStop = false,
+    String webSocketStatus = 'closed',
+  }) async {
+    if (_failureCleanupStarted || state is LiveDone || state is LiveFailed) {
+      return;
+    }
+    _failureCleanupStarted = true;
+
+    final client = _client;
+    if (sendStop && client != null) {
+      try {
+        _sendStopOnce(client);
+      } catch (_) {
+        // The socket is already failing; cleanup continues below.
+      }
+    }
+
+    await _stopAndroidCapture();
+    await _closeClient();
+    _webSocketStatus = webSocketStatus;
+    _captureStatus = 'stopped';
+    _setFailed(message, error);
+    _invalidateLiveData();
+
+    final completer = _doneCompleter;
+    if (completer != null && !completer.isCompleted) {
+      completer.completeError(error ?? StateError(message));
+    }
+  }
+
+  void _handleNativeCaptureError(LiveCaptureEvent event) {
+    final message = _messageForNativeCaptureEvent(
+      event,
+      fallback: 'Android live capture failed.',
+    );
+    if (state is LiveStopping) {
+      _addWarning(message);
+      return;
+    }
+    unawaited(
+      _failAfterCleanup(
+        message,
+        StateError(message),
+        sendStop: true,
+        webSocketStatus: 'closed',
+      ),
+    );
+  }
+
+  void _handleNativeCaptureStopped(LiveCaptureEvent event) {
+    _captureStatus = 'stopped';
+    if (state is LiveIdle ||
+        state is LiveStopping ||
+        state is LiveDone ||
+        state is LiveFailed ||
+        _captureStopRequested) {
+      _publishActiveState();
+      return;
+    }
+
+    final reason = event.message?.trim().isNotEmpty == true
+        ? event.message!.trim()
+        : event.code?.trim();
+    final detail = reason == null || reason.isEmpty
+        ? 'Android live capture stopped unexpectedly.'
+        : 'Android live capture stopped unexpectedly: $reason.';
+    unawaited(
+      _failAfterCleanup(
+        detail,
+        StateError(detail),
+        sendStop: true,
+        webSocketStatus: 'closed',
+      ),
+    );
+  }
+
+  void _sendStopOnce(LiveWebSocketClient client) {
+    if (_stopMessageSent) {
+      return;
+    }
+    _stopMessageSent = true;
+    client.sendStop();
   }
 
   LiveReadyNoCapture _readyState() {
@@ -596,6 +787,17 @@ class LiveRecordingController extends Notifier<LiveRecordingState> {
     }
   }
 
+  void _addWarning(String message, {bool publish = true}) {
+    final trimmed = message.trim();
+    if (trimmed.isEmpty || _warnings.contains(trimmed)) {
+      return;
+    }
+    _warnings = List.unmodifiable(<String>[..._warnings, trimmed]);
+    if (publish) {
+      _publishActiveState();
+    }
+  }
+
   void _setFailed(String message, Object? error) {
     state = LiveFailed(
       errorMessage: message,
@@ -634,8 +836,9 @@ class LiveRecordingController extends Notifier<LiveRecordingState> {
 
   Future<void> _stopAndroidCapture() async {
     final platform = _capturePlatform;
-    if (platform != null) {
+    if (platform != null && !_captureStopRequested) {
       try {
+        _captureStopRequested = true;
         _captureStatus = 'stopping';
         await platform.stopCapture();
       } catch (_) {
@@ -677,17 +880,27 @@ class LiveRecordingController extends Notifier<LiveRecordingState> {
     _messages = const <String>[];
     _warnings = const <String>[];
     _doneCompleter = null;
+    _stopCompleter = null;
     _webSocketStatus = 'idle';
     _captureStatus = 'idle';
     _pcmChunksSent = 0;
     _pcmChunksDropped = 0;
     _lastPcmChunkBytes = 0;
     _lastPcmMetricsPublishedAt = null;
+    _stopMessageSent = false;
+    _captureStopRequested = false;
+    _failureCleanupStarted = false;
+    _wasStreamingInBackground = false;
   }
 
   void _invalidateLiveData() {
     ref.invalidate(meetingsListProvider);
     ref.invalidate(liveLimitsProvider);
+    final meetingId = _meetingId;
+    if (meetingId != null) {
+      ref.invalidate(meetingProvider(meetingId));
+      ref.invalidate(sessionsProvider(meetingId));
+    }
   }
 }
 
@@ -700,8 +913,11 @@ bool _isSupportedLanguage(String languageCode) {
 }
 
 String _messageForError(Object error) {
+  if (error is TimeoutException) {
+    return 'WebSocket connection timed out. Check that the backend URL supports live transcription.';
+  }
   if (error is SocketException) {
-    return 'Backend is not reachable from this Android device. Use your computer LAN IP or a deployed backend URL.';
+    return 'Backend is not reachable. Check your connection and backend URL.';
   }
   if (error is ArgumentError && error.message != null) {
     return error.message.toString();
@@ -711,16 +927,39 @@ String _messageForError(Object error) {
   }
   if (error is PlatformException) {
     final message = error.message ?? error.code;
+    final lowerCode = error.code.toLowerCase();
+    final lowerMessage = message.toLowerCase();
+    if (lowerCode.contains('projection') && lowerMessage.contains('denied')) {
+      return 'MediaProjection permission was denied.';
+    }
+    if (lowerCode.contains('permission') || lowerCode.contains('security')) {
+      return 'Android live capture permission was denied.';
+    }
     if (_looksLikeBackendReachabilityIssue(message)) {
-      return 'Backend is not reachable from this Android device. Use your computer LAN IP or a deployed backend URL.';
+      return 'Backend is not reachable. Check your connection and backend URL.';
     }
     return message;
   }
   final message = error.toString().trim();
   if (_looksLikeBackendReachabilityIssue(message)) {
-    return 'Backend is not reachable from this Android device. Use your computer LAN IP or a deployed backend URL.';
+    return 'Backend is not reachable. Check your connection and backend URL.';
   }
   return message.isEmpty ? 'Live recording failed.' : message;
+}
+
+String _messageForNativeCaptureEvent(
+  LiveCaptureEvent event, {
+  required String fallback,
+}) {
+  final message = event.message?.trim();
+  if (message != null && message.isNotEmpty) {
+    return message;
+  }
+  final code = event.code?.trim();
+  if (code != null && code.isNotEmpty) {
+    return 'Android live capture failed: $code.';
+  }
+  return fallback;
 }
 
 bool _looksLikeBackendReachabilityIssue(String message) {

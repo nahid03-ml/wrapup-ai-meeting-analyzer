@@ -1,9 +1,11 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../../core/config/env.dart';
 import '../../../../core/languages/supported_languages.dart';
+import '../../../../core/router/app_router.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../application/live_recording_controller_provider.dart';
@@ -29,6 +31,7 @@ class _LiveTranscriptionBetaPanelState
   bool _healthChecking = false;
   bool? _healthOk;
   String? _healthMessage;
+  bool _showBackendDiagnosticDetails = false;
 
   @override
   void initState() {
@@ -96,6 +99,13 @@ class _LiveTranscriptionBetaPanelState
             healthChecking: _healthChecking,
             healthOk: _healthOk,
             healthMessage: _healthMessage,
+            showDetails: _showBackendDiagnosticDetails,
+            onToggleDetails: () {
+              setState(
+                () => _showBackendDiagnosticDetails =
+                    !_showBackendDiagnosticDetails,
+              );
+            },
             onTestHealth: _healthChecking
                 ? null
                 : () => _testBackendHealth(diagnostics.healthUri),
@@ -176,7 +186,7 @@ class _LiveTranscriptionBetaPanelState
               ),
             ),
             const SizedBox(height: AppSpacing.xs),
-            for (final line in state.transcriptLines.reversed.take(3))
+            for (final line in state.transcriptLines.reversed.take(8))
               Padding(
                 padding: const EdgeInsets.only(bottom: AppSpacing.xs),
                 child: Text(
@@ -190,7 +200,41 @@ class _LiveTranscriptionBetaPanelState
                 ),
               ),
           ],
+          if (state is LiveDone && state.finalTranscript.trim().isNotEmpty) ...[
+            const SizedBox(height: AppSpacing.md),
+            Text(
+              'Final transcript preview',
+              style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                color: AppColors.textPrimary,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: AppSpacing.xs),
+            Text(
+              _previewTranscript(state.finalTranscript),
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: AppColors.textPrimary,
+                height: 1.35,
+              ),
+            ),
+          ],
           const SizedBox(height: AppSpacing.lg),
+          if (state is LiveDone && state.meetingId != null) ...[
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: () => context.push(
+                  AppRoutes.meetingDetail.replaceFirst(
+                    ':id',
+                    Uri.encodeComponent(state.meetingId!),
+                  ),
+                ),
+                icon: const Icon(Icons.open_in_new_outlined),
+                label: const Text('Open meeting'),
+              ),
+            ),
+            const SizedBox(height: AppSpacing.sm),
+          ],
           SizedBox(
             width: double.infinity,
             child: FilledButton.icon(
@@ -273,6 +317,8 @@ class _BackendDiagnosticsCard extends StatelessWidget {
     required this.healthChecking,
     required this.healthOk,
     required this.healthMessage,
+    required this.showDetails,
+    required this.onToggleDetails,
     required this.onTestHealth,
   });
 
@@ -280,6 +326,8 @@ class _BackendDiagnosticsCard extends StatelessWidget {
   final bool healthChecking;
   final bool? healthOk;
   final String? healthMessage;
+  final bool showDetails;
+  final VoidCallback onToggleDetails;
   final VoidCallback? onTestHealth;
 
   @override
@@ -295,34 +343,54 @@ class _BackendDiagnosticsCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            'Backend diagnostics',
-            style: Theme.of(context).textTheme.titleSmall?.copyWith(
-              color: AppColors.textPrimary,
-              fontWeight: FontWeight.w800,
-            ),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Backend diagnostics',
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                    color: AppColors.textPrimary,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+              IconButton(
+                onPressed: onToggleDetails,
+                tooltip: showDetails
+                    ? 'Hide backend details'
+                    : 'Show backend details',
+                icon: Icon(
+                  showDetails
+                      ? Icons.expand_less_outlined
+                      : Icons.expand_more_outlined,
+                  color: AppColors.textSecondary,
+                ),
+              ),
+            ],
           ),
-          const SizedBox(height: AppSpacing.sm),
           _StatusRow(label: 'Backend host', value: diagnostics.host),
           _StatusRow(label: 'Backend scheme', value: diagnostics.backendScheme),
           _StatusRow(
             label: 'WebSocket scheme',
             value: diagnostics.webSocketScheme,
           ),
-          const _StatusRow(
-            label: 'WebSocket path',
-            value: _liveWebSocketPathTemplate,
-          ),
-          _StatusRow(
-            label: 'Sanitized WebSocket target',
-            value: diagnostics.sanitizedWebSocketTarget,
-          ),
           if (diagnostics.isLikelyVercelFrontend) ...[
-            const SizedBox(height: AppSpacing.sm),
+            const SizedBox(height: AppSpacing.xs),
             const _MessageBox(
               icon: Icons.warning_amber_outlined,
               color: AppColors.warning,
               text: _vercelBackendWarning,
+            ),
+          ],
+          if (showDetails) ...[
+            const SizedBox(height: AppSpacing.xs),
+            const _StatusRow(
+              label: 'WebSocket path',
+              value: _liveWebSocketPathTemplate,
+            ),
+            _StatusRow(
+              label: 'Sanitized WebSocket target',
+              value: diagnostics.sanitizedWebSocketTarget,
             ),
           ],
           const SizedBox(height: AppSpacing.sm),
@@ -368,6 +436,14 @@ class _BackendDiagnosticsCard extends StatelessWidget {
       ),
     );
   }
+}
+
+String _previewTranscript(String transcript) {
+  final trimmed = transcript.trim();
+  if (trimmed.length <= 1200) {
+    return trimmed;
+  }
+  return '${trimmed.substring(0, 1200)}...';
 }
 
 class _LiveBackendDiagnostics {
