@@ -741,6 +741,35 @@ class _AdvancedDiagnosticsCard extends StatelessWidget {
                 label: 'WebSocket open',
                 value: _isWebSocketOpen(state.webSocketStatus) ? 'yes' : 'no',
               ),
+              _StatusRow(label: 'Resume count', value: '${state.resumeCount}'),
+              _StatusRow(
+                label: 'Last resume time',
+                value: _formatDiagnosticTime(state.lastResumeAt),
+              ),
+              _StatusRow(
+                label: 'PCM chunks sent after resume',
+                value: '${state.pcmChunksSentAfterResume}',
+              ),
+              _StatusRow(
+                label: 'Last PCM sent after resume',
+                value: _formatDiagnosticTime(state.lastPcmSentAfterResumeAt),
+              ),
+              _StatusRow(
+                label: 'Last transcript after resume',
+                value: _formatDiagnosticTime(state.lastTranscriptAfterResumeAt),
+              ),
+              _StatusRow(
+                label: 'Resumed audio being sent',
+                value: state.isSendingAudioAfterResume ? 'yes' : 'no',
+              ),
+              _StatusRow(
+                label: 'Paused silence keepalive chunks',
+                value: '${state.pausedSilentKeepAliveChunksSent}',
+              ),
+              _StatusRow(
+                label: 'Last paused silence keepalive',
+                value: _formatDiagnosticTime(state.lastPausedSilentKeepAliveAt),
+              ),
               _StatusRow(
                 label: 'Paused duration',
                 value: _formatDuration(state.pausedDuration),
@@ -1171,6 +1200,9 @@ String _userFacingError(String message) {
   }
   if (lower.contains('live connection ended during pause')) {
     return 'Live connection ended during pause. Please start a new capture.';
+  }
+  if (lower.contains('could not resume transcription')) {
+    return 'Could not resume transcription. Please stop and start a new capture.';
   }
   if (lower.contains('connection lost')) {
     return 'Connection lost. Capture stopped safely.';

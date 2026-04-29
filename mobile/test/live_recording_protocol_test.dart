@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mobile/features/live_recording/application/live_transcript_line.dart';
 import 'package:mobile/features/live_recording/data/live_event.dart';
+import 'package:mobile/features/live_recording/data/live_pcm_silence.dart';
 import 'package:mobile/features/live_recording/data/live_websocket_client.dart';
 import 'package:mobile/features/live_recording/data/live_websocket_url_builder.dart';
 
@@ -30,10 +31,7 @@ void main() {
     expect(uri.scheme, 'ws');
     expect(uri.host, 'localhost');
     expect(uri.port, 8000);
-    expect(uri.queryParameters, {
-      'lang': 'es',
-      'token': 'fresh-token',
-    });
+    expect(uri.queryParameters, {'lang': 'es', 'token': 'fresh-token'});
   });
 
   test('backend transcript and done events parse from protocol JSON', () {
@@ -67,48 +65,58 @@ void main() {
     expect((event as LiveMessageEvent).message, isNotEmpty);
   });
 
-  test('interim transcript lines update and finals replace trailing interim', () {
-    final createdAt = DateTime.utc(2026, 4, 28);
-    var lines = mergeLiveTranscriptEvent(
-      lines: const [],
-      event: const LiveTranscriptEvent(
-        text: 'hello',
-        speaker: 0,
-        isFinal: false,
-        confidence: 0.5,
-      ),
-      createdAt: createdAt,
-    );
+  test(
+    'interim transcript lines update and finals replace trailing interim',
+    () {
+      final createdAt = DateTime.utc(2026, 4, 28);
+      var lines = mergeLiveTranscriptEvent(
+        lines: const [],
+        event: const LiveTranscriptEvent(
+          text: 'hello',
+          speaker: 0,
+          isFinal: false,
+          confidence: 0.5,
+        ),
+        createdAt: createdAt,
+      );
 
-    lines = mergeLiveTranscriptEvent(
-      lines: lines,
-      event: const LiveTranscriptEvent(
-        text: 'hello there',
-        speaker: 0,
-        isFinal: false,
-        confidence: 0.7,
-      ),
-      createdAt: createdAt,
-    );
+      lines = mergeLiveTranscriptEvent(
+        lines: lines,
+        event: const LiveTranscriptEvent(
+          text: 'hello there',
+          speaker: 0,
+          isFinal: false,
+          confidence: 0.7,
+        ),
+        createdAt: createdAt,
+      );
 
-    expect(lines, hasLength(1));
-    expect(lines.single.text, 'hello there');
-    expect(lines.single.isFinal, isFalse);
+      expect(lines, hasLength(1));
+      expect(lines.single.text, 'hello there');
+      expect(lines.single.isFinal, isFalse);
 
-    lines = mergeLiveTranscriptEvent(
-      lines: lines,
-      event: const LiveTranscriptEvent(
-        text: 'hello there',
-        speaker: 0,
-        isFinal: true,
-        confidence: 0.92,
-      ),
-      createdAt: createdAt,
-    );
+      lines = mergeLiveTranscriptEvent(
+        lines: lines,
+        event: const LiveTranscriptEvent(
+          text: 'hello there',
+          speaker: 0,
+          isFinal: true,
+          confidence: 0.92,
+        ),
+        createdAt: createdAt,
+      );
 
-    expect(lines, hasLength(1));
-    expect(lines.single.text, 'hello there');
-    expect(lines.single.isFinal, isTrue);
-    expect(lines.single.createdAt, createdAt);
+      expect(lines, hasLength(1));
+      expect(lines.single.text, 'hello there');
+      expect(lines.single.isFinal, isTrue);
+      expect(lines.single.createdAt, createdAt);
+    },
+  );
+
+  test('paused silence keepalive frame is 100ms PCM16 mono silence', () {
+    final frame = buildLivePcm16SilenceFrame();
+
+    expect(frame, hasLength(3200));
+    expect(frame.every((byte) => byte == 0), isTrue);
   });
 }

@@ -29,6 +29,14 @@ sealed class LiveRecordingState {
     this.appBackgroundCount = 0,
     this.appForegroundReturnCount = 0,
     this.lastBackgroundedAt,
+    this.resumeCount = 0,
+    this.lastResumeAt,
+    this.pcmChunksSentAfterResume = 0,
+    this.lastPcmSentAfterResumeAt,
+    this.lastTranscriptAfterResumeAt,
+    this.isSendingAudioAfterResume = false,
+    this.pausedSilentKeepAliveChunksSent = 0,
+    this.lastPausedSilentKeepAliveAt,
   });
 
   final String? meetingId;
@@ -58,6 +66,14 @@ sealed class LiveRecordingState {
   final int appBackgroundCount;
   final int appForegroundReturnCount;
   final DateTime? lastBackgroundedAt;
+  final int resumeCount;
+  final DateTime? lastResumeAt;
+  final int pcmChunksSentAfterResume;
+  final DateTime? lastPcmSentAfterResumeAt;
+  final DateTime? lastTranscriptAfterResumeAt;
+  final bool isSendingAudioAfterResume;
+  final int pausedSilentKeepAliveChunksSent;
+  final DateTime? lastPausedSilentKeepAliveAt;
 }
 
 class LiveIdle extends LiveRecordingState {
@@ -78,6 +94,14 @@ class LiveCreatingSession extends LiveRecordingState {
     super.appBackgroundCount,
     super.appForegroundReturnCount,
     super.lastBackgroundedAt,
+    super.resumeCount,
+    super.lastResumeAt,
+    super.pcmChunksSentAfterResume,
+    super.lastPcmSentAfterResumeAt,
+    super.lastTranscriptAfterResumeAt,
+    super.isSendingAudioAfterResume,
+    super.pausedSilentKeepAliveChunksSent,
+    super.lastPausedSilentKeepAliveAt,
   });
 }
 
@@ -110,6 +134,14 @@ class LiveConnecting extends LiveRecordingState {
     super.appBackgroundCount,
     super.appForegroundReturnCount,
     super.lastBackgroundedAt,
+    super.resumeCount,
+    super.lastResumeAt,
+    super.pcmChunksSentAfterResume,
+    super.lastPcmSentAfterResumeAt,
+    super.lastTranscriptAfterResumeAt,
+    super.isSendingAudioAfterResume,
+    super.pausedSilentKeepAliveChunksSent,
+    super.lastPausedSilentKeepAliveAt,
   });
 }
 
@@ -142,6 +174,14 @@ class LiveReadyNoCapture extends LiveRecordingState {
     super.appBackgroundCount,
     super.appForegroundReturnCount,
     super.lastBackgroundedAt,
+    super.resumeCount,
+    super.lastResumeAt,
+    super.pcmChunksSentAfterResume,
+    super.lastPcmSentAfterResumeAt,
+    super.lastTranscriptAfterResumeAt,
+    super.isSendingAudioAfterResume,
+    super.pausedSilentKeepAliveChunksSent,
+    super.lastPausedSilentKeepAliveAt,
   });
 }
 
@@ -174,6 +214,14 @@ class LiveStartingCapture extends LiveRecordingState {
     super.appBackgroundCount,
     super.appForegroundReturnCount,
     super.lastBackgroundedAt,
+    super.resumeCount,
+    super.lastResumeAt,
+    super.pcmChunksSentAfterResume,
+    super.lastPcmSentAfterResumeAt,
+    super.lastTranscriptAfterResumeAt,
+    super.isSendingAudioAfterResume,
+    super.pausedSilentKeepAliveChunksSent,
+    super.lastPausedSilentKeepAliveAt,
   });
 }
 
@@ -206,6 +254,14 @@ class LiveStreaming extends LiveRecordingState {
     super.appBackgroundCount,
     super.appForegroundReturnCount,
     super.lastBackgroundedAt,
+    super.resumeCount,
+    super.lastResumeAt,
+    super.pcmChunksSentAfterResume,
+    super.lastPcmSentAfterResumeAt,
+    super.lastTranscriptAfterResumeAt,
+    super.isSendingAudioAfterResume,
+    super.pausedSilentKeepAliveChunksSent,
+    super.lastPausedSilentKeepAliveAt,
   });
 }
 
@@ -237,6 +293,14 @@ class LivePaused extends LiveRecordingState {
     super.appBackgroundCount,
     super.appForegroundReturnCount,
     super.lastBackgroundedAt,
+    super.resumeCount,
+    super.lastResumeAt,
+    super.pcmChunksSentAfterResume,
+    super.lastPcmSentAfterResumeAt,
+    super.lastTranscriptAfterResumeAt,
+    super.isSendingAudioAfterResume,
+    super.pausedSilentKeepAliveChunksSent,
+    super.lastPausedSilentKeepAliveAt,
   }) : super(isPaused: true);
 }
 
@@ -268,6 +332,14 @@ class LiveResuming extends LiveRecordingState {
     super.appBackgroundCount,
     super.appForegroundReturnCount,
     super.lastBackgroundedAt,
+    super.resumeCount,
+    super.lastResumeAt,
+    super.pcmChunksSentAfterResume,
+    super.lastPcmSentAfterResumeAt,
+    super.lastTranscriptAfterResumeAt,
+    super.isSendingAudioAfterResume,
+    super.pausedSilentKeepAliveChunksSent,
+    super.lastPausedSilentKeepAliveAt,
   });
 }
 
@@ -300,6 +372,14 @@ class LiveStopping extends LiveRecordingState {
     super.appBackgroundCount,
     super.appForegroundReturnCount,
     super.lastBackgroundedAt,
+    super.resumeCount,
+    super.lastResumeAt,
+    super.pcmChunksSentAfterResume,
+    super.lastPcmSentAfterResumeAt,
+    super.lastTranscriptAfterResumeAt,
+    super.isSendingAudioAfterResume,
+    super.pausedSilentKeepAliveChunksSent,
+    super.lastPausedSilentKeepAliveAt,
   });
 }
 
@@ -332,6 +412,14 @@ class LiveDone extends LiveRecordingState {
     super.appBackgroundCount,
     super.appForegroundReturnCount,
     super.lastBackgroundedAt,
+    super.resumeCount,
+    super.lastResumeAt,
+    super.pcmChunksSentAfterResume,
+    super.lastPcmSentAfterResumeAt,
+    super.lastTranscriptAfterResumeAt,
+    super.isSendingAudioAfterResume,
+    super.pausedSilentKeepAliveChunksSent,
+    super.lastPausedSilentKeepAliveAt,
     this.finalTranscript = '',
     this.usedGroqFallback = false,
   });
@@ -371,6 +459,14 @@ class LiveFailed extends LiveRecordingState {
     super.appBackgroundCount,
     super.appForegroundReturnCount,
     super.lastBackgroundedAt,
+    super.resumeCount,
+    super.lastResumeAt,
+    super.pcmChunksSentAfterResume,
+    super.lastPcmSentAfterResumeAt,
+    super.lastTranscriptAfterResumeAt,
+    super.isSendingAudioAfterResume,
+    super.pausedSilentKeepAliveChunksSent,
+    super.lastPausedSilentKeepAliveAt,
   });
 
   final String errorMessage;

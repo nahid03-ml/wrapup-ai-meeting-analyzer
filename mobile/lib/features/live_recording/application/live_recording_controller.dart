@@ -15,6 +15,7 @@ import '../data/android_live_capture_platform.dart';
 import '../data/live_capture_event.dart';
 import '../data/live_capture_config.dart';
 import '../data/live_event.dart';
+import '../data/live_pcm_silence.dart';
 import '../data/live_session_repository.dart';
 import '../data/live_websocket_client.dart';
 import '../data/live_websocket_url_builder.dart';
@@ -29,6 +30,8 @@ const _longPauseWarningDuration = Duration(minutes: 5);
 const _longPauseNotice = 'Capture is paused. Resume when you are ready.';
 const _longPauseWarning =
     'Long pauses may affect the live connection. Resume or stop when ready.';
+const _pausedSilenceKeepAliveInterval = Duration(seconds: 4);
+final Uint8List _pausedSilenceKeepAliveFrame = buildLivePcm16SilenceFrame();
 
 class LiveRecordingController extends Notifier<LiveRecordingState>
     with WidgetsBindingObserver {
@@ -39,6 +42,7 @@ class LiveRecordingController extends Notifier<LiveRecordingState>
   StreamSubscription? _captureStatusSubscription;
   Completer<LiveDoneEvent>? _doneCompleter;
   Completer<void>? _stopCompleter;
+  Timer? _pausedSilenceKeepAliveTimer;
 
   String? _meetingId;
   String? _sessionId;
@@ -76,6 +80,14 @@ class LiveRecordingController extends Notifier<LiveRecordingState>
   int _appForegroundReturnCount = 0;
   bool _longPauseNoticeAdded = false;
   bool _longPauseWarningAdded = false;
+  int _resumeCount = 0;
+  DateTime? _lastResumeAt;
+  int _pcmChunksSentAfterResume = 0;
+  DateTime? _lastPcmSentAfterResumeAt;
+  DateTime? _lastTranscriptAfterResumeAt;
+  bool _isSendingAudioAfterResume = false;
+  int _pausedSilentKeepAliveChunksSent = 0;
+  DateTime? _lastPausedSilentKeepAliveAt;
 
   AndroidLiveCapturePlatform get _androidCapturePlatform {
     return _capturePlatform ??= AndroidLiveCapturePlatform();
@@ -376,6 +388,7 @@ class LiveRecordingController extends Notifier<LiveRecordingState>
     }
     _isPaused = true;
     _pauseStartedAt ??= DateTime.now();
+    _startPausedSilenceKeepAlive();
     state = _pausedState();
   }
 
@@ -386,8 +399,15 @@ class LiveRecordingController extends Notifier<LiveRecordingState>
     if (_meetingId == null || _sessionId == null || _languageCode == null) {
       return;
     }
+    _stopPausedSilenceKeepAlive();
     _finalizePauseDuration();
     _isPaused = false;
+    _resumeCount += 1;
+    _lastResumeAt = DateTime.now();
+    _pcmChunksSentAfterResume = 0;
+    _lastPcmSentAfterResumeAt = null;
+    _lastTranscriptAfterResumeAt = null;
+    _isSendingAudioAfterResume = false;
     state = _resumingState();
     scheduleMicrotask(() {
       if (state is LiveResuming) {
@@ -417,6 +437,9 @@ class LiveRecordingController extends Notifier<LiveRecordingState>
     switch (event) {
       case LiveTranscriptEvent():
         _lastTranscriptEventAt = now;
+        if (_lastResumeAt != null && !now.isBefore(_lastResumeAt!)) {
+          _lastTranscriptAfterResumeAt = now;
+        }
         _transcriptLines = mergeLiveTranscriptEvent(
           lines: _transcriptLines,
           event: event,
@@ -632,7 +655,13 @@ class LiveRecordingController extends Notifier<LiveRecordingState>
       client.sendBinary(bytes);
       _pcmChunksSent += 1;
       _lastPcmChunkBytes = bytes.length;
-      _lastPcmSentAt = DateTime.now();
+      final now = DateTime.now();
+      _lastPcmSentAt = now;
+      if (_lastResumeAt != null && !now.isBefore(_lastResumeAt!)) {
+        _pcmChunksSentAfterResume += 1;
+        _lastPcmSentAfterResumeAt = now;
+        _isSendingAudioAfterResume = true;
+      }
     } catch (error) {
       _pcmChunksDropped += 1;
       _warnings = List.unmodifiable(<String>[
@@ -791,6 +820,7 @@ class LiveRecordingController extends Notifier<LiveRecordingState>
     if (_captureStartedAt == null) {
       return;
     }
+    _stopPausedSilenceKeepAlive();
     final now = DateTime.now();
     _finalizePauseDuration(now);
     _captureStoppedAt ??= now;
@@ -852,6 +882,48 @@ class LiveRecordingController extends Notifier<LiveRecordingState>
     _durationTimer = null;
   }
 
+  void _startPausedSilenceKeepAlive() {
+    _pausedSilenceKeepAliveTimer?.cancel();
+    _sendPausedSilenceKeepAlive();
+    _pausedSilenceKeepAliveTimer = Timer.periodic(
+      _pausedSilenceKeepAliveInterval,
+      (_) => _sendPausedSilenceKeepAlive(),
+    );
+  }
+
+  void _stopPausedSilenceKeepAlive() {
+    _pausedSilenceKeepAliveTimer?.cancel();
+    _pausedSilenceKeepAliveTimer = null;
+  }
+
+  void _sendPausedSilenceKeepAlive() {
+    if (!_isPaused && state is! LivePaused) {
+      return;
+    }
+    if (state is LiveStopping || state is LiveDone || state is LiveFailed) {
+      return;
+    }
+    final client = _client;
+    if (client == null) {
+      return;
+    }
+
+    try {
+      client.sendBinary(_pausedSilenceKeepAliveFrame);
+      _pausedSilentKeepAliveChunksSent += 1;
+      _lastPausedSilentKeepAliveAt = DateTime.now();
+      _publishActiveState();
+    } catch (error) {
+      unawaited(
+        _failAfterCleanup(
+          _connectionLostMessage(failedWhilePaused: true),
+          error,
+          webSocketStatus: 'failed',
+        ),
+      );
+    }
+  }
+
   void _refreshLongPauseWarnings({bool publish = true}) {
     if (!_isPaused && state is! LivePaused) {
       return;
@@ -880,6 +952,9 @@ class LiveRecordingController extends Notifier<LiveRecordingState>
         return 'Live connection ended during pause. Please start a new capture.';
       }
       return 'Connection lost while capture was paused. Please start again.';
+    }
+    if (_lastResumeAt != null && _lastTranscriptAfterResumeAt == null) {
+      return 'Could not resume transcription. Please stop and start a new capture.';
     }
     return 'Connection lost. Capture stopped safely.';
   }
@@ -912,6 +987,14 @@ class LiveRecordingController extends Notifier<LiveRecordingState>
       appBackgroundCount: _appBackgroundCount,
       appForegroundReturnCount: _appForegroundReturnCount,
       lastBackgroundedAt: _lastBackgroundedAt,
+      resumeCount: _resumeCount,
+      lastResumeAt: _lastResumeAt,
+      pcmChunksSentAfterResume: _pcmChunksSentAfterResume,
+      lastPcmSentAfterResumeAt: _lastPcmSentAfterResumeAt,
+      lastTranscriptAfterResumeAt: _lastTranscriptAfterResumeAt,
+      isSendingAudioAfterResume: _isSendingAudioAfterResume,
+      pausedSilentKeepAliveChunksSent: _pausedSilentKeepAliveChunksSent,
+      lastPausedSilentKeepAliveAt: _lastPausedSilentKeepAliveAt,
     );
   }
 
@@ -943,6 +1026,14 @@ class LiveRecordingController extends Notifier<LiveRecordingState>
       appBackgroundCount: _appBackgroundCount,
       appForegroundReturnCount: _appForegroundReturnCount,
       lastBackgroundedAt: _lastBackgroundedAt,
+      resumeCount: _resumeCount,
+      lastResumeAt: _lastResumeAt,
+      pcmChunksSentAfterResume: _pcmChunksSentAfterResume,
+      lastPcmSentAfterResumeAt: _lastPcmSentAfterResumeAt,
+      lastTranscriptAfterResumeAt: _lastTranscriptAfterResumeAt,
+      isSendingAudioAfterResume: _isSendingAudioAfterResume,
+      pausedSilentKeepAliveChunksSent: _pausedSilentKeepAliveChunksSent,
+      lastPausedSilentKeepAliveAt: _lastPausedSilentKeepAliveAt,
     );
   }
 
@@ -974,6 +1065,14 @@ class LiveRecordingController extends Notifier<LiveRecordingState>
       appBackgroundCount: _appBackgroundCount,
       appForegroundReturnCount: _appForegroundReturnCount,
       lastBackgroundedAt: _lastBackgroundedAt,
+      resumeCount: _resumeCount,
+      lastResumeAt: _lastResumeAt,
+      pcmChunksSentAfterResume: _pcmChunksSentAfterResume,
+      lastPcmSentAfterResumeAt: _lastPcmSentAfterResumeAt,
+      lastTranscriptAfterResumeAt: _lastTranscriptAfterResumeAt,
+      isSendingAudioAfterResume: _isSendingAudioAfterResume,
+      pausedSilentKeepAliveChunksSent: _pausedSilentKeepAliveChunksSent,
+      lastPausedSilentKeepAliveAt: _lastPausedSilentKeepAliveAt,
     );
   }
 
@@ -1006,6 +1105,14 @@ class LiveRecordingController extends Notifier<LiveRecordingState>
       appBackgroundCount: _appBackgroundCount,
       appForegroundReturnCount: _appForegroundReturnCount,
       lastBackgroundedAt: _lastBackgroundedAt,
+      resumeCount: _resumeCount,
+      lastResumeAt: _lastResumeAt,
+      pcmChunksSentAfterResume: _pcmChunksSentAfterResume,
+      lastPcmSentAfterResumeAt: _lastPcmSentAfterResumeAt,
+      lastTranscriptAfterResumeAt: _lastTranscriptAfterResumeAt,
+      isSendingAudioAfterResume: _isSendingAudioAfterResume,
+      pausedSilentKeepAliveChunksSent: _pausedSilentKeepAliveChunksSent,
+      lastPausedSilentKeepAliveAt: _lastPausedSilentKeepAliveAt,
     );
   }
 
@@ -1037,6 +1144,14 @@ class LiveRecordingController extends Notifier<LiveRecordingState>
       appBackgroundCount: _appBackgroundCount,
       appForegroundReturnCount: _appForegroundReturnCount,
       lastBackgroundedAt: _lastBackgroundedAt,
+      resumeCount: _resumeCount,
+      lastResumeAt: _lastResumeAt,
+      pcmChunksSentAfterResume: _pcmChunksSentAfterResume,
+      lastPcmSentAfterResumeAt: _lastPcmSentAfterResumeAt,
+      lastTranscriptAfterResumeAt: _lastTranscriptAfterResumeAt,
+      isSendingAudioAfterResume: _isSendingAudioAfterResume,
+      pausedSilentKeepAliveChunksSent: _pausedSilentKeepAliveChunksSent,
+      lastPausedSilentKeepAliveAt: _lastPausedSilentKeepAliveAt,
     );
   }
 
@@ -1068,6 +1183,14 @@ class LiveRecordingController extends Notifier<LiveRecordingState>
       appBackgroundCount: _appBackgroundCount,
       appForegroundReturnCount: _appForegroundReturnCount,
       lastBackgroundedAt: _lastBackgroundedAt,
+      resumeCount: _resumeCount,
+      lastResumeAt: _lastResumeAt,
+      pcmChunksSentAfterResume: _pcmChunksSentAfterResume,
+      lastPcmSentAfterResumeAt: _lastPcmSentAfterResumeAt,
+      lastTranscriptAfterResumeAt: _lastTranscriptAfterResumeAt,
+      isSendingAudioAfterResume: _isSendingAudioAfterResume,
+      pausedSilentKeepAliveChunksSent: _pausedSilentKeepAliveChunksSent,
+      lastPausedSilentKeepAliveAt: _lastPausedSilentKeepAliveAt,
     );
   }
 
@@ -1100,6 +1223,14 @@ class LiveRecordingController extends Notifier<LiveRecordingState>
       appBackgroundCount: _appBackgroundCount,
       appForegroundReturnCount: _appForegroundReturnCount,
       lastBackgroundedAt: _lastBackgroundedAt,
+      resumeCount: _resumeCount,
+      lastResumeAt: _lastResumeAt,
+      pcmChunksSentAfterResume: _pcmChunksSentAfterResume,
+      lastPcmSentAfterResumeAt: _lastPcmSentAfterResumeAt,
+      lastTranscriptAfterResumeAt: _lastTranscriptAfterResumeAt,
+      isSendingAudioAfterResume: _isSendingAudioAfterResume,
+      pausedSilentKeepAliveChunksSent: _pausedSilentKeepAliveChunksSent,
+      lastPausedSilentKeepAliveAt: _lastPausedSilentKeepAliveAt,
     );
   }
 
@@ -1132,6 +1263,14 @@ class LiveRecordingController extends Notifier<LiveRecordingState>
       appBackgroundCount: _appBackgroundCount,
       appForegroundReturnCount: _appForegroundReturnCount,
       lastBackgroundedAt: _lastBackgroundedAt,
+      resumeCount: _resumeCount,
+      lastResumeAt: _lastResumeAt,
+      pcmChunksSentAfterResume: _pcmChunksSentAfterResume,
+      lastPcmSentAfterResumeAt: _lastPcmSentAfterResumeAt,
+      lastTranscriptAfterResumeAt: _lastTranscriptAfterResumeAt,
+      isSendingAudioAfterResume: _isSendingAudioAfterResume,
+      pausedSilentKeepAliveChunksSent: _pausedSilentKeepAliveChunksSent,
+      lastPausedSilentKeepAliveAt: _lastPausedSilentKeepAliveAt,
       finalTranscript: doneEvent?.transcript ?? '',
       usedGroqFallback: doneEvent?.usedGroqFallback ?? false,
     );
@@ -1198,6 +1337,14 @@ class LiveRecordingController extends Notifier<LiveRecordingState>
       appBackgroundCount: _appBackgroundCount,
       appForegroundReturnCount: _appForegroundReturnCount,
       lastBackgroundedAt: _lastBackgroundedAt,
+      resumeCount: _resumeCount,
+      lastResumeAt: _lastResumeAt,
+      pcmChunksSentAfterResume: _pcmChunksSentAfterResume,
+      lastPcmSentAfterResumeAt: _lastPcmSentAfterResumeAt,
+      lastTranscriptAfterResumeAt: _lastTranscriptAfterResumeAt,
+      isSendingAudioAfterResume: _isSendingAudioAfterResume,
+      pausedSilentKeepAliveChunksSent: _pausedSilentKeepAliveChunksSent,
+      lastPausedSilentKeepAliveAt: _lastPausedSilentKeepAliveAt,
     );
   }
 
@@ -1249,6 +1396,7 @@ class LiveRecordingController extends Notifier<LiveRecordingState>
 
   Future<void> _dispose() async {
     _stopDurationTimer();
+    _stopPausedSilenceKeepAlive();
     await _stopAndroidCapture();
     await _closeClient();
     try {
@@ -1260,6 +1408,7 @@ class LiveRecordingController extends Notifier<LiveRecordingState>
 
   void _clearRuntime() {
     _stopDurationTimer();
+    _stopPausedSilenceKeepAlive();
     _meetingId = null;
     _sessionId = null;
     _languageCode = null;
@@ -1296,6 +1445,14 @@ class LiveRecordingController extends Notifier<LiveRecordingState>
     _appForegroundReturnCount = 0;
     _longPauseNoticeAdded = false;
     _longPauseWarningAdded = false;
+    _resumeCount = 0;
+    _lastResumeAt = null;
+    _pcmChunksSentAfterResume = 0;
+    _lastPcmSentAfterResumeAt = null;
+    _lastTranscriptAfterResumeAt = null;
+    _isSendingAudioAfterResume = false;
+    _pausedSilentKeepAliveChunksSent = 0;
+    _lastPausedSilentKeepAliveAt = null;
   }
 
   void _invalidateLiveData() {
