@@ -19,7 +19,7 @@ class LiveRecordingSetupPage extends StatelessWidget {
           padding: const EdgeInsets.all(AppSpacing.lg),
           children: [
             Text(
-              'Choose recording source',
+              'Android live capture',
               style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                 color: AppColors.textPrimary,
                 fontWeight: FontWeight.w900,
@@ -27,21 +27,16 @@ class LiveRecordingSetupPage extends StatelessWidget {
             ),
             const SizedBox(height: AppSpacing.sm),
             Text(
-              'WrapUp does not rely on Zoom, Meet, or Teams APIs. It captures audio through supported OS-level capture paths.',
+              'WrapUp uses Android OS-level capture permission to prepare device-audio capture. Some meeting apps may block device audio, and real recording is not enabled yet.',
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                 color: AppColors.textSecondary,
                 height: 1.4,
               ),
             ),
             const SizedBox(height: AppSpacing.lg),
-            for (final mode in liveCaptureModes) ...[
-              CaptureModeCard(mode: mode),
-              if (mode.id == CaptureModeId.androidDeviceAudioMicBeta) ...[
-                const SizedBox(height: AppSpacing.md),
-                const AndroidCaptureSmokeTestPanel(),
-              ],
-              const SizedBox(height: AppSpacing.md),
-            ],
+            const CaptureModeCard(mode: androidLiveCaptureMode),
+            const SizedBox(height: AppSpacing.md),
+            const AndroidCaptureSmokeTestPanel(),
           ],
         ),
       ),

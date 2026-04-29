@@ -68,14 +68,6 @@ class CaptureModeCard extends StatelessWidget {
               height: 1.35,
             ),
           ),
-          const SizedBox(height: AppSpacing.lg),
-          SizedBox(
-            width: double.infinity,
-            child: OutlinedButton(
-              onPressed: mode.enabled ? () {} : null,
-              child: Text(mode.buttonLabel),
-            ),
-          ),
         ],
       ),
     );
@@ -112,8 +104,6 @@ class _StatusBadge extends StatelessWidget {
 
 IconData _iconFor(CaptureModeIcon icon) {
   return switch (icon) {
-    CaptureModeIcon.desktop => Icons.desktop_windows_outlined,
     CaptureModeIcon.android => Icons.android_outlined,
-    CaptureModeIcon.microphone => Icons.mic_none_outlined,
   };
 }
