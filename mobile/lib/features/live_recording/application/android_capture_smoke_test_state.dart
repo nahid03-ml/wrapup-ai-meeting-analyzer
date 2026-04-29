@@ -37,6 +37,10 @@ class AndroidCaptureSmokeTestState {
     this.projectionStatus = 'not requested',
     this.serviceStatus = 'stopped',
     this.systemPlaybackStatus = 'not started',
+    this.playbackReadStatus = 'not started',
+    this.hasPlaybackFirstFrameRead = false,
+    this.latestReadResult,
+    this.audioRecordDetails,
     this.systemAudioLevel = 0.0,
     this.isSystemAudioSilent = true,
     this.systemAudioSampleRateHz,
@@ -59,6 +63,10 @@ class AndroidCaptureSmokeTestState {
   final String projectionStatus;
   final String serviceStatus;
   final String systemPlaybackStatus;
+  final String playbackReadStatus;
+  final bool hasPlaybackFirstFrameRead;
+  final int? latestReadResult;
+  final String? audioRecordDetails;
   final double systemAudioLevel;
   final bool isSystemAudioSilent;
   final int? systemAudioSampleRateHz;
@@ -128,6 +136,12 @@ class AndroidCaptureSmokeTestState {
     String? projectionStatus,
     String? serviceStatus,
     String? systemPlaybackStatus,
+    String? playbackReadStatus,
+    bool? hasPlaybackFirstFrameRead,
+    int? latestReadResult,
+    bool clearLatestReadResult = false,
+    String? audioRecordDetails,
+    bool clearAudioRecordDetails = false,
     double? systemAudioLevel,
     bool? isSystemAudioSilent,
     int? systemAudioSampleRateHz,
@@ -157,6 +171,15 @@ class AndroidCaptureSmokeTestState {
       serviceStatus: serviceStatus ?? this.serviceStatus,
       systemPlaybackStatus:
           systemPlaybackStatus ?? this.systemPlaybackStatus,
+      playbackReadStatus: playbackReadStatus ?? this.playbackReadStatus,
+      hasPlaybackFirstFrameRead:
+          hasPlaybackFirstFrameRead ?? this.hasPlaybackFirstFrameRead,
+      latestReadResult: clearLatestReadResult
+          ? null
+          : latestReadResult ?? this.latestReadResult,
+      audioRecordDetails: clearAudioRecordDetails
+          ? null
+          : audioRecordDetails ?? this.audioRecordDetails,
       systemAudioLevel: systemAudioLevel ?? this.systemAudioLevel,
       isSystemAudioSilent: isSystemAudioSilent ?? this.isSystemAudioSilent,
       systemAudioSampleRateHz: clearSystemAudioSampleRateHz

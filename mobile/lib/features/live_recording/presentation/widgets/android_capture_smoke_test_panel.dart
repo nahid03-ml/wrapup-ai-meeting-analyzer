@@ -95,10 +95,28 @@ class _AndroidCaptureSmokeTestPanelState
             label: 'System playback',
             value: state.systemPlaybackStatus,
           ),
+          _StatusRow(
+            label: 'Read status',
+            value: state.playbackReadStatus,
+          ),
+          _StatusRow(
+            label: 'First frame',
+            value: state.hasPlaybackFirstFrameRead ? 'yes' : 'no',
+          ),
+          if (state.latestReadResult != null)
+            _StatusRow(
+              label: 'Latest read',
+              value: state.latestReadResult.toString(),
+            ),
           if (state.systemAudioSampleRateHz != null)
             _StatusRow(
               label: 'AudioRecord rate',
               value: '${state.systemAudioSampleRateHz} Hz',
+            ),
+          if (state.audioRecordDetails != null)
+            _StatusRow(
+              label: 'AudioRecord',
+              value: state.audioRecordDetails!,
             ),
           const SizedBox(height: AppSpacing.sm),
           _AudioLevelMeter(state: state),

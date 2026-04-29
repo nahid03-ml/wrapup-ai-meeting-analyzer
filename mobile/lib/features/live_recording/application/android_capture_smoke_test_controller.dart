@@ -138,6 +138,10 @@ class AndroidCaptureSmokeTestController
         status: AndroidCaptureSmokeTestStatus.serviceStarting,
         serviceStatus: 'starting',
         systemPlaybackStatus: 'not started',
+        playbackReadStatus: 'not started',
+        hasPlaybackFirstFrameRead: false,
+        clearLatestReadResult: true,
+        clearAudioRecordDetails: true,
         systemAudioLevel: 0.0,
         isSystemAudioSilent: true,
         clearSystemAudioSampleRateHz: true,
@@ -176,6 +180,7 @@ class AndroidCaptureSmokeTestController
         statusText: 'Stopping Android live capture foreground service.',
         serviceStatus: 'stopping',
         systemPlaybackStatus: 'stopping',
+        playbackReadStatus: 'stop requested',
         clearError: true,
       );
       await _capturePlatform.stopCapture();
@@ -184,6 +189,7 @@ class AndroidCaptureSmokeTestController
         isServiceRunning: false,
         serviceStatus: 'stopped',
         systemPlaybackStatus: 'stopped',
+        playbackReadStatus: 'stopped',
         statusText: 'Android live capture foreground service stopped.',
       );
     } on PlatformException catch (error) {
@@ -222,6 +228,7 @@ class AndroidCaptureSmokeTestController
       case LiveCaptureEventType.status:
         _handleStatusValue(event, events);
       case LiveCaptureEventType.warning:
+        final isNoFramesWarning = event.code == 'playbackCaptureNoFrames';
         state = state.copyWith(
           systemPlaybackStatus: event.code == 'systemPlaybackSilent'
               ? 'silent'
@@ -229,6 +236,9 @@ class AndroidCaptureSmokeTestController
           isSystemAudioSilent: event.code == 'systemPlaybackSilent'
               ? true
               : state.isSystemAudioSilent,
+          playbackReadStatus: isNoFramesWarning
+              ? 'no frames read'
+              : state.playbackReadStatus,
           warnings: List<String>.unmodifiable(<String>[
             event.message ?? 'Android capture warning.',
             ...state.warnings,
@@ -247,6 +257,7 @@ class AndroidCaptureSmokeTestController
           isServiceRunning: false,
           serviceStatus: 'stopped',
           systemPlaybackStatus: 'stopped',
+          playbackReadStatus: 'stopped',
           statusText: 'Android live capture foreground service stopped.',
           events: events,
         );
@@ -274,8 +285,10 @@ class AndroidCaptureSmokeTestController
           : state.status,
       systemAudioLevel: level,
       isSystemAudioSilent: isSilent,
+      hasPlaybackFirstFrameRead: true,
       systemAudioSampleRateHz: event.sampleRateHz,
       systemPlaybackStatus: isSilent ? 'silent' : 'audio detected',
+      playbackReadStatus: isSilent ? 'reading silent frames' : 'reading audio',
       events: events,
     );
   }
@@ -343,6 +356,34 @@ class AndroidCaptureSmokeTestController
           events: events,
           clearError: true,
         );
+      case 'audioRecordBuilt':
+        state = state.copyWith(
+          systemPlaybackStatus: 'AudioRecord built',
+          playbackReadStatus: 'built',
+          systemAudioSampleRateHz: event.sampleRateHz,
+          audioRecordDetails: _audioRecordDetails(event),
+          statusText: event.message ?? 'Playback AudioRecord was built.',
+          events: events,
+          clearError: true,
+        );
+      case 'audioRecordStartRequested':
+        state = state.copyWith(
+          systemPlaybackStatus: 'starting AudioRecord',
+          playbackReadStatus: 'start requested',
+          latestReadResult: event.readResult,
+          statusText: event.message ?? 'Starting playback AudioRecord.',
+          events: events,
+          clearError: true,
+        );
+      case 'audioRecordRecording':
+        state = state.copyWith(
+          systemPlaybackStatus: 'recording',
+          playbackReadStatus: 'recording',
+          statusText:
+              event.message ?? 'Playback AudioRecord entered recording state.',
+          events: events,
+          clearError: true,
+        );
       case 'playbackCaptureStarting':
         state = state.copyWith(
           status: AndroidCaptureSmokeTestStatus.playbackCaptureStarting,
@@ -354,6 +395,14 @@ class AndroidCaptureSmokeTestController
           events: events,
           clearError: true,
         );
+      case 'playbackCaptureStopRequested':
+        state = state.copyWith(
+          systemPlaybackStatus: 'stopping',
+          playbackReadStatus: 'stop requested',
+          statusText:
+              event.message ?? 'Stopping Android system playback capture.',
+          events: events,
+        );
       case 'playbackCaptureStarted':
         state = state.copyWith(
           status: AndroidCaptureSmokeTestStatus.playbackCaptureRunning,
@@ -363,6 +412,43 @@ class AndroidCaptureSmokeTestController
           systemAudioSampleRateHz: event.sampleRateHz,
           statusText:
               'This Phase 6F proof captures Android system playback only. Microphone capture is not active yet.',
+          events: events,
+          clearError: true,
+        );
+      case 'playbackReadStarted':
+        state = state.copyWith(
+          status: AndroidCaptureSmokeTestStatus.playbackCaptureRunning,
+          isServiceRunning: true,
+          serviceStatus: 'running',
+          playbackReadStatus: 'waiting for frames',
+          statusText:
+              event.message ?? 'Playback capture read loop started.',
+          events: events,
+          clearError: true,
+        );
+      case 'playbackReadNoData':
+        state = state.copyWith(
+          status: AndroidCaptureSmokeTestStatus.playbackCaptureRunning,
+          isServiceRunning: true,
+          serviceStatus: 'running',
+          playbackReadStatus: 'no data yet',
+          latestReadResult: event.readResult,
+          statusText:
+              event.message ?? 'Playback capture read returned no data yet.',
+          events: events,
+          clearError: true,
+        );
+      case 'playbackFirstFrameRead':
+        state = state.copyWith(
+          status: AndroidCaptureSmokeTestStatus.playbackCaptureRunning,
+          isServiceRunning: true,
+          serviceStatus: 'running',
+          systemPlaybackStatus: 'frames detected',
+          playbackReadStatus: 'first frame read',
+          hasPlaybackFirstFrameRead: true,
+          latestReadResult: event.readResult,
+          systemAudioSampleRateHz: event.sampleRateHz,
+          statusText: event.message ?? 'First playback audio frame was read.',
           events: events,
           clearError: true,
         );
@@ -377,10 +463,17 @@ class AndroidCaptureSmokeTestController
           events: events,
           clearError: true,
         );
+      case 'playbackReadStopped':
+        state = state.copyWith(
+          playbackReadStatus: 'stopped',
+          statusText: event.message ?? 'Playback capture read loop stopped.',
+          events: events,
+        );
       case 'playbackCaptureStopped':
         state = state.copyWith(
           status: AndroidCaptureSmokeTestStatus.playbackCaptureStopped,
           systemPlaybackStatus: 'stopped',
+          playbackReadStatus: 'stopped',
           statusText: event.message ?? 'System playback capture stopped.',
           events: events,
         );
@@ -390,6 +483,7 @@ class AndroidCaptureSmokeTestController
           isServiceRunning: false,
           serviceStatus: 'stopped',
           systemPlaybackStatus: 'stopped',
+          playbackReadStatus: 'stopped',
           statusText: 'Android live capture foreground service stopped.',
           events: events,
         );
@@ -444,4 +538,21 @@ String _permissionLabel(PermissionStatus status) {
 String _messageForError(Object error) {
   final message = error.toString().trim();
   return message.isEmpty ? 'Android capture smoke test failed.' : message;
+}
+
+String? _audioRecordDetails(LiveCaptureEvent event) {
+  final parts = <String>[];
+  final sampleRateHz = event.sampleRateHz;
+  if (sampleRateHz != null) {
+    parts.add('$sampleRateHz Hz');
+  }
+  final channelCount = event.channelCount;
+  if (channelCount != null) {
+    parts.add(channelCount == 1 ? 'mono' : '$channelCount channels');
+  }
+  final bufferSizeBytes = event.bufferSizeBytes;
+  if (bufferSizeBytes != null) {
+    parts.add('$bufferSizeBytes B buffer');
+  }
+  return parts.isEmpty ? null : parts.join(' - ');
 }

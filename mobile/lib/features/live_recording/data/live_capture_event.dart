@@ -31,6 +31,10 @@ class LiveCaptureEvent {
     this.isSilent,
     this.source,
     this.sampleRateHz,
+    this.channelCount,
+    this.bufferSizeBytes,
+    this.readResult,
+    this.recordingState,
   });
 
   final LiveCaptureEventType eventType;
@@ -42,6 +46,10 @@ class LiveCaptureEvent {
   final bool? isSilent;
   final String? source;
   final int? sampleRateHz;
+  final int? channelCount;
+  final int? bufferSizeBytes;
+  final int? readResult;
+  final int? recordingState;
 
   String get type => eventType.wireValue;
 
@@ -59,6 +67,10 @@ class LiveCaptureEvent {
       isSilent: _boolOrNull(map['isSilent']),
       source: _stringOrNull(map['source']),
       sampleRateHz: _intOrNull(map['sampleRateHz']),
+      channelCount: _intOrNull(map['channelCount']),
+      bufferSizeBytes: _intOrNull(map['bufferSizeBytes']),
+      readResult: _intOrNull(map['readResult']),
+      recordingState: _intOrNull(map['recordingState']),
     );
   }
 

@@ -178,8 +178,12 @@ class LiveCaptureService : Service() {
                     )
                 }
 
-                override fun onPlaybackCaptureStatus(status: String, message: String?) {
-                    LiveCaptureStatusBus.emitStatus(status, message)
+                override fun onPlaybackCaptureStatus(
+                    status: String,
+                    message: String?,
+                    fields: Map<String, Any?>,
+                ) {
+                    LiveCaptureStatusBus.emitStatus(status, message, fields)
                 }
 
                 override fun onPlaybackCaptureWarning(message: String, code: String?) {
