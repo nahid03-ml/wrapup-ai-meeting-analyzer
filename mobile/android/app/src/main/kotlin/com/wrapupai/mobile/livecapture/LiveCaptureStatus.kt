@@ -21,11 +21,15 @@ object LiveCaptureStatusBus {
         }
     }
 
-    fun emitStatus(status: String, message: String? = null) {
+    fun emitStatus(
+        status: String,
+        message: String? = null,
+        fields: Map<String, Any?> = emptyMap(),
+    ) {
         emit(
             type = "status",
             message = message,
-            fields = mapOf("status" to status),
+            fields = mapOf("status" to status) + fields,
         )
     }
 
@@ -42,6 +46,23 @@ object LiveCaptureStatusBus {
             type = "error",
             message = message,
             fields = mapOf("code" to code),
+        )
+    }
+
+    fun emitAudioLevel(
+        level: Double,
+        isSilent: Boolean,
+        source: String,
+        sampleRateHz: Int,
+    ) {
+        emit(
+            type = "audioLevel",
+            fields = mapOf(
+                "level" to level,
+                "isSilent" to isSilent,
+                "source" to source,
+                "sampleRateHz" to sampleRateHz,
+            ),
         )
     }
 

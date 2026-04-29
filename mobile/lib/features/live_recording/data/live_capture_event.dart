@@ -28,6 +28,9 @@ class LiveCaptureEvent {
     this.message,
     this.code,
     this.level,
+    this.isSilent,
+    this.source,
+    this.sampleRateHz,
   });
 
   final LiveCaptureEventType eventType;
@@ -36,6 +39,9 @@ class LiveCaptureEvent {
   final String? message;
   final String? code;
   final double? level;
+  final bool? isSilent;
+  final String? source;
+  final int? sampleRateHz;
 
   String get type => eventType.wireValue;
 
@@ -50,6 +56,9 @@ class LiveCaptureEvent {
       message: _stringOrNull(map['message']),
       code: _stringOrNull(map['code']),
       level: _doubleOrNull(map['level']),
+      isSilent: _boolOrNull(map['isSilent']),
+      source: _stringOrNull(map['source']),
+      sampleRateHz: _intOrNull(map['sampleRateHz']),
     );
   }
 
@@ -91,5 +100,18 @@ String? _stringOrNull(dynamic value) {
 double? _doubleOrNull(dynamic value) {
   if (value is num) return value.toDouble();
   if (value is String) return double.tryParse(value);
+  return null;
+}
+
+bool? _boolOrNull(dynamic value) {
+  if (value is bool) return value;
+  if (value is String) return bool.tryParse(value);
+  return null;
+}
+
+int? _intOrNull(dynamic value) {
+  if (value is int) return value;
+  if (value is num) return value.toInt();
+  if (value is String) return int.tryParse(value);
   return null;
 }

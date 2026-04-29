@@ -43,6 +43,18 @@ data class LiveCaptureConfig(
                 systemGain = map.doubleValue("systemGain", 0.8),
             )
         }
+
+        fun fromIntent(intent: Intent): LiveCaptureConfig {
+            return LiveCaptureConfig(
+                captureSystemAudio = intent.getBooleanExtra(EXTRA_CAPTURE_SYSTEM_AUDIO, true),
+                captureMicrophone = intent.getBooleanExtra(EXTRA_CAPTURE_MICROPHONE, true),
+                sampleRateHz = intent.getIntExtra(EXTRA_SAMPLE_RATE_HZ, 16000),
+                channelCount = intent.getIntExtra(EXTRA_CHANNEL_COUNT, 1),
+                bitsPerSample = intent.getIntExtra(EXTRA_BITS_PER_SAMPLE, 16),
+                micGain = intent.getDoubleExtra(EXTRA_MIC_GAIN, 0.8),
+                systemGain = intent.getDoubleExtra(EXTRA_SYSTEM_GAIN, 0.8),
+            )
+        }
     }
 }
 

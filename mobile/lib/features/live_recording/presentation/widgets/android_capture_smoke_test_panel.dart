@@ -69,7 +69,7 @@ class _AndroidCaptureSmokeTestPanelState
           ),
           const SizedBox(height: AppSpacing.sm),
           Text(
-            'This only tests permission and foreground service startup. It does not record audio yet.',
+            'System audio proof is active. It checks whether Android playback audio can be detected, but it does not stream audio to transcription yet.',
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
               color: AppColors.textSecondary,
               height: 1.35,
@@ -91,6 +91,17 @@ class _AndroidCaptureSmokeTestPanelState
           ),
           _StatusRow(label: 'Projection', value: state.projectionStatus),
           _StatusRow(label: 'Service', value: state.serviceStatus),
+          _StatusRow(
+            label: 'System playback',
+            value: state.systemPlaybackStatus,
+          ),
+          if (state.systemAudioSampleRateHz != null)
+            _StatusRow(
+              label: 'AudioRecord rate',
+              value: '${state.systemAudioSampleRateHz} Hz',
+            ),
+          const SizedBox(height: AppSpacing.sm),
+          _AudioLevelMeter(state: state),
           const SizedBox(height: AppSpacing.sm),
           Text(
             state.versionHelperText,
@@ -216,6 +227,56 @@ class _StatusBanner extends StatelessWidget {
   }
 }
 
+class _AudioLevelMeter extends StatelessWidget {
+  const _AudioLevelMeter({required this.state});
+
+  final AndroidCaptureSmokeTestState state;
+
+  @override
+  Widget build(BuildContext context) {
+    final level = state.systemAudioLevel.clamp(0.0, 1.0).toDouble();
+    final percent = (level * 100).round();
+    final color = state.isSystemAudioSilent
+        ? AppColors.warning
+        : AppColors.success;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                'System audio level',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: AppColors.textMuted,
+                ),
+              ),
+            ),
+            Text(
+              state.isSystemAudioSilent ? '$percent% · silent' : '$percent%',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: AppColors.textPrimary,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: AppSpacing.xs),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(AppSpacing.radiusSm),
+          child: LinearProgressIndicator(
+            value: level,
+            minHeight: 8,
+            backgroundColor: AppColors.border,
+            color: color,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 class _MessageBox extends StatelessWidget {
   const _MessageBox({
     required this.icon,
@@ -249,12 +310,14 @@ class _MessageBox extends StatelessWidget {
 
 Color _statusColor(AndroidCaptureSmokeTestState state) {
   return switch (state.status) {
-    AndroidCaptureSmokeTestStatus.serviceRunning => AppColors.success,
+    AndroidCaptureSmokeTestStatus.serviceRunning ||
+    AndroidCaptureSmokeTestStatus.playbackCaptureRunning => AppColors.success,
     AndroidCaptureSmokeTestStatus.serviceFailed ||
     AndroidCaptureSmokeTestStatus.projectionDenied ||
     AndroidCaptureSmokeTestStatus.unsupportedBelowAndroid10 ||
     AndroidCaptureSmokeTestStatus.nonAndroid => AppColors.destructive,
     AndroidCaptureSmokeTestStatus.serviceStarting ||
+    AndroidCaptureSmokeTestStatus.playbackCaptureStarting ||
     AndroidCaptureSmokeTestStatus.requestingPermissions ||
     AndroidCaptureSmokeTestStatus.requestingProjection => AppColors.warning,
     _ => AppColors.cyan,

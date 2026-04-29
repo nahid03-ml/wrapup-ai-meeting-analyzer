@@ -136,6 +136,10 @@ class AndroidCaptureSmokeTestController
       state = state.copyWith(
         status: AndroidCaptureSmokeTestStatus.serviceStarting,
         serviceStatus: 'starting',
+        systemPlaybackStatus: 'not started',
+        systemAudioLevel: 0.0,
+        isSystemAudioSilent: true,
+        clearSystemAudioSampleRateHz: true,
         statusText: 'Starting Android live capture foreground service.',
       );
 
@@ -165,6 +169,7 @@ class AndroidCaptureSmokeTestController
       state = state.copyWith(
         statusText: 'Stopping Android live capture foreground service.',
         serviceStatus: 'stopping',
+        systemPlaybackStatus: 'stopping',
         clearError: true,
       );
       await _capturePlatform.stopCapture();
@@ -172,6 +177,7 @@ class AndroidCaptureSmokeTestController
         status: AndroidCaptureSmokeTestStatus.serviceStopped,
         isServiceRunning: false,
         serviceStatus: 'stopped',
+        systemPlaybackStatus: 'stopped',
         statusText: 'Android live capture foreground service stopped.',
       );
     } on PlatformException catch (error) {
@@ -211,6 +217,12 @@ class AndroidCaptureSmokeTestController
         _handleStatusValue(event, events);
       case LiveCaptureEventType.warning:
         state = state.copyWith(
+          systemPlaybackStatus: event.code == 'systemPlaybackSilent'
+              ? 'silent'
+              : state.systemPlaybackStatus,
+          isSystemAudioSilent: event.code == 'systemPlaybackSilent'
+              ? true
+              : state.isSystemAudioSilent,
           warnings: List<String>.unmodifiable(<String>[
             event.message ?? 'Android capture warning.',
             ...state.warnings,
@@ -228,12 +240,38 @@ class AndroidCaptureSmokeTestController
           status: AndroidCaptureSmokeTestStatus.serviceStopped,
           isServiceRunning: false,
           serviceStatus: 'stopped',
+          systemPlaybackStatus: 'stopped',
           statusText: 'Android live capture foreground service stopped.',
           events: events,
         );
-      case LiveCaptureEventType.audioLevel || LiveCaptureEventType.unknown:
+      case LiveCaptureEventType.audioLevel:
+        _handleAudioLevelEvent(event, events);
+      case LiveCaptureEventType.unknown:
         state = state.copyWith(events: events);
     }
+  }
+
+  void _handleAudioLevelEvent(
+    LiveCaptureEvent event,
+    List<LiveCaptureEvent> events,
+  ) {
+    if (event.source != 'systemPlayback') {
+      state = state.copyWith(events: events);
+      return;
+    }
+
+    final level = (event.level ?? 0.0).clamp(0.0, 1.0).toDouble();
+    final isSilent = event.isSilent ?? level < 0.01;
+    state = state.copyWith(
+      status: state.isServiceRunning
+          ? AndroidCaptureSmokeTestStatus.playbackCaptureRunning
+          : state.status,
+      systemAudioLevel: level,
+      isSystemAudioSilent: isSilent,
+      systemAudioSampleRateHz: event.sampleRateHz,
+      systemPlaybackStatus: isSilent ? 'silent' : 'audio detected',
+      events: events,
+    );
   }
 
   void _handleStatusValue(
@@ -299,11 +337,53 @@ class AndroidCaptureSmokeTestController
           events: events,
           clearError: true,
         );
+      case 'playbackCaptureStarting':
+        state = state.copyWith(
+          status: AndroidCaptureSmokeTestStatus.playbackCaptureStarting,
+          isServiceRunning: true,
+          serviceStatus: 'running',
+          systemPlaybackStatus: 'starting',
+          statusText:
+              event.message ?? 'Starting Android system playback AudioRecord.',
+          events: events,
+          clearError: true,
+        );
+      case 'playbackCaptureStarted':
+        state = state.copyWith(
+          status: AndroidCaptureSmokeTestStatus.playbackCaptureRunning,
+          isServiceRunning: true,
+          serviceStatus: 'running',
+          systemPlaybackStatus: 'running',
+          systemAudioSampleRateHz: event.sampleRateHz,
+          statusText:
+              'System audio proof is active. It checks whether Android playback audio can be detected, but it does not stream audio to transcription yet.',
+          events: events,
+          clearError: true,
+        );
+      case 'deviceAudioDetected':
+        state = state.copyWith(
+          status: AndroidCaptureSmokeTestStatus.playbackCaptureRunning,
+          isServiceRunning: true,
+          serviceStatus: 'running',
+          systemPlaybackStatus: 'audio detected',
+          isSystemAudioSilent: false,
+          statusText: event.message ?? 'Device audio detected.',
+          events: events,
+          clearError: true,
+        );
+      case 'playbackCaptureStopped':
+        state = state.copyWith(
+          status: AndroidCaptureSmokeTestStatus.playbackCaptureStopped,
+          systemPlaybackStatus: 'stopped',
+          statusText: event.message ?? 'System playback capture stopped.',
+          events: events,
+        );
       case 'serviceStopped':
         state = state.copyWith(
           status: AndroidCaptureSmokeTestStatus.serviceStopped,
           isServiceRunning: false,
           serviceStatus: 'stopped',
+          systemPlaybackStatus: 'stopped',
           statusText: 'Android live capture foreground service stopped.',
           events: events,
         );

@@ -16,6 +16,9 @@ enum AndroidCaptureSmokeTestStatus {
   serviceRunning,
   serviceStopped,
   serviceFailed,
+  playbackCaptureStarting,
+  playbackCaptureRunning,
+  playbackCaptureStopped,
 }
 
 class AndroidCaptureSmokeTestState {
@@ -33,6 +36,10 @@ class AndroidCaptureSmokeTestState {
     this.notificationPermissionStatus = 'not required',
     this.projectionStatus = 'not requested',
     this.serviceStatus = 'stopped',
+    this.systemPlaybackStatus = 'not started',
+    this.systemAudioLevel = 0.0,
+    this.isSystemAudioSilent = true,
+    this.systemAudioSampleRateHz,
     this.warnings = const <String>[],
     this.errorMessage,
     this.events = const <LiveCaptureEvent>[],
@@ -51,6 +58,10 @@ class AndroidCaptureSmokeTestState {
   final String notificationPermissionStatus;
   final String projectionStatus;
   final String serviceStatus;
+  final String systemPlaybackStatus;
+  final double systemAudioLevel;
+  final bool isSystemAudioSilent;
+  final int? systemAudioSampleRateHz;
   final List<String> warnings;
   final String? errorMessage;
   final List<LiveCaptureEvent> events;
@@ -64,7 +75,11 @@ class AndroidCaptureSmokeTestState {
         !isServiceRunning;
   }
 
-  bool get canStop => isServiceRunning || status == AndroidCaptureSmokeTestStatus.serviceStarting;
+  bool get canStop =>
+      isServiceRunning ||
+      status == AndroidCaptureSmokeTestStatus.serviceStarting ||
+      status == AndroidCaptureSmokeTestStatus.playbackCaptureStarting ||
+      status == AndroidCaptureSmokeTestStatus.playbackCaptureRunning;
 
   String get versionBucketLabel {
     final sdk = sdkInt == null ? 'unknown SDK' : 'SDK $sdkInt';
@@ -112,6 +127,11 @@ class AndroidCaptureSmokeTestState {
     String? notificationPermissionStatus,
     String? projectionStatus,
     String? serviceStatus,
+    String? systemPlaybackStatus,
+    double? systemAudioLevel,
+    bool? isSystemAudioSilent,
+    int? systemAudioSampleRateHz,
+    bool clearSystemAudioSampleRateHz = false,
     List<String>? warnings,
     String? errorMessage,
     bool clearError = false,
@@ -135,6 +155,13 @@ class AndroidCaptureSmokeTestState {
           notificationPermissionStatus ?? this.notificationPermissionStatus,
       projectionStatus: projectionStatus ?? this.projectionStatus,
       serviceStatus: serviceStatus ?? this.serviceStatus,
+      systemPlaybackStatus:
+          systemPlaybackStatus ?? this.systemPlaybackStatus,
+      systemAudioLevel: systemAudioLevel ?? this.systemAudioLevel,
+      isSystemAudioSilent: isSystemAudioSilent ?? this.isSystemAudioSilent,
+      systemAudioSampleRateHz: clearSystemAudioSampleRateHz
+          ? null
+          : systemAudioSampleRateHz ?? this.systemAudioSampleRateHz,
       warnings: warnings ?? this.warnings,
       errorMessage: clearError ? null : errorMessage ?? this.errorMessage,
       events: events ?? this.events,
