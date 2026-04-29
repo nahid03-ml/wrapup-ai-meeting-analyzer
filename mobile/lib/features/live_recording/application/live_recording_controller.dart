@@ -47,6 +47,10 @@ class LiveRecordingController extends Notifier<LiveRecordingState>
   int _pcmChunksSent = 0;
   int _pcmChunksDropped = 0;
   int _lastPcmChunkBytes = 0;
+  double _audioLevel = 0;
+  bool _hasAudioLevel = false;
+  bool _isAudioDetected = false;
+  String? _audioLevelSource;
   DateTime? _lastPcmMetricsPublishedAt;
   bool _stopMessageSent = false;
   bool _captureStopRequested = false;
@@ -511,6 +515,10 @@ class LiveRecordingController extends Notifier<LiveRecordingState>
             _addWarning(message, publish: false);
           }
         }
+        if (event.eventType == LiveCaptureEventType.audioLevel) {
+          _handleAudioLevelEvent(event);
+          return;
+        }
         if (event.eventType == LiveCaptureEventType.error) {
           _handleNativeCaptureError(event);
           return;
@@ -571,6 +579,20 @@ class LiveRecordingController extends Notifier<LiveRecordingState>
       return;
     }
     _lastPcmMetricsPublishedAt = now;
+    _publishActiveState();
+  }
+
+  void _handleAudioLevelEvent(LiveCaptureEvent event) {
+    final source = event.source;
+    if (_audioLevelSource == 'mixed' && source != 'mixed') {
+      return;
+    }
+
+    final level = (event.level ?? 0).clamp(0.0, 1.0).toDouble();
+    _audioLevel = level;
+    _hasAudioLevel = true;
+    _isAudioDetected = !(event.isSilent ?? level < 0.01);
+    _audioLevelSource = source;
     _publishActiveState();
   }
 
@@ -687,6 +709,9 @@ class LiveRecordingController extends Notifier<LiveRecordingState>
       pcmChunksSent: _pcmChunksSent,
       pcmChunksDropped: _pcmChunksDropped,
       lastPcmChunkBytes: _lastPcmChunkBytes,
+      audioLevel: _audioLevel,
+      hasAudioLevel: _hasAudioLevel,
+      isAudioDetected: _isAudioDetected,
     );
   }
 
@@ -703,6 +728,9 @@ class LiveRecordingController extends Notifier<LiveRecordingState>
       pcmChunksSent: _pcmChunksSent,
       pcmChunksDropped: _pcmChunksDropped,
       lastPcmChunkBytes: _lastPcmChunkBytes,
+      audioLevel: _audioLevel,
+      hasAudioLevel: _hasAudioLevel,
+      isAudioDetected: _isAudioDetected,
     );
   }
 
@@ -719,6 +747,9 @@ class LiveRecordingController extends Notifier<LiveRecordingState>
       pcmChunksSent: _pcmChunksSent,
       pcmChunksDropped: _pcmChunksDropped,
       lastPcmChunkBytes: _lastPcmChunkBytes,
+      audioLevel: _audioLevel,
+      hasAudioLevel: _hasAudioLevel,
+      isAudioDetected: _isAudioDetected,
     );
   }
 
@@ -735,6 +766,9 @@ class LiveRecordingController extends Notifier<LiveRecordingState>
       pcmChunksSent: _pcmChunksSent,
       pcmChunksDropped: _pcmChunksDropped,
       lastPcmChunkBytes: _lastPcmChunkBytes,
+      audioLevel: _audioLevel,
+      hasAudioLevel: _hasAudioLevel,
+      isAudioDetected: _isAudioDetected,
     );
   }
 
@@ -751,6 +785,9 @@ class LiveRecordingController extends Notifier<LiveRecordingState>
       pcmChunksSent: _pcmChunksSent,
       pcmChunksDropped: _pcmChunksDropped,
       lastPcmChunkBytes: _lastPcmChunkBytes,
+      audioLevel: _audioLevel,
+      hasAudioLevel: _hasAudioLevel,
+      isAudioDetected: _isAudioDetected,
     );
   }
 
@@ -767,6 +804,9 @@ class LiveRecordingController extends Notifier<LiveRecordingState>
       pcmChunksSent: _pcmChunksSent,
       pcmChunksDropped: _pcmChunksDropped,
       lastPcmChunkBytes: _lastPcmChunkBytes,
+      audioLevel: _audioLevel,
+      hasAudioLevel: _hasAudioLevel,
+      isAudioDetected: _isAudioDetected,
       finalTranscript: doneEvent?.transcript ?? '',
       usedGroqFallback: doneEvent?.usedGroqFallback ?? false,
     );
@@ -813,6 +853,9 @@ class LiveRecordingController extends Notifier<LiveRecordingState>
       pcmChunksSent: _pcmChunksSent,
       pcmChunksDropped: _pcmChunksDropped,
       lastPcmChunkBytes: _lastPcmChunkBytes,
+      audioLevel: _audioLevel,
+      hasAudioLevel: _hasAudioLevel,
+      isAudioDetected: _isAudioDetected,
     );
   }
 
@@ -886,6 +929,10 @@ class LiveRecordingController extends Notifier<LiveRecordingState>
     _pcmChunksSent = 0;
     _pcmChunksDropped = 0;
     _lastPcmChunkBytes = 0;
+    _audioLevel = 0;
+    _hasAudioLevel = false;
+    _isAudioDetected = false;
+    _audioLevelSource = null;
     _lastPcmMetricsPublishedAt = null;
     _stopMessageSent = false;
     _captureStopRequested = false;

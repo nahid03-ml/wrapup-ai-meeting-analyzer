@@ -13,6 +13,9 @@ sealed class LiveRecordingState {
     this.pcmChunksSent = 0,
     this.pcmChunksDropped = 0,
     this.lastPcmChunkBytes = 0,
+    this.audioLevel = 0,
+    this.hasAudioLevel = false,
+    this.isAudioDetected = false,
   });
 
   final String? meetingId;
@@ -26,6 +29,9 @@ sealed class LiveRecordingState {
   final int pcmChunksSent;
   final int pcmChunksDropped;
   final int lastPcmChunkBytes;
+  final double audioLevel;
+  final bool hasAudioLevel;
+  final bool isAudioDetected;
 }
 
 class LiveIdle extends LiveRecordingState {
@@ -49,6 +55,9 @@ class LiveConnecting extends LiveRecordingState {
     super.pcmChunksSent,
     super.pcmChunksDropped,
     super.lastPcmChunkBytes,
+    super.audioLevel,
+    super.hasAudioLevel,
+    super.isAudioDetected,
   });
 }
 
@@ -65,6 +74,9 @@ class LiveReadyNoCapture extends LiveRecordingState {
     super.pcmChunksSent,
     super.pcmChunksDropped,
     super.lastPcmChunkBytes,
+    super.audioLevel,
+    super.hasAudioLevel,
+    super.isAudioDetected,
   });
 }
 
@@ -81,6 +93,9 @@ class LiveStartingCapture extends LiveRecordingState {
     super.pcmChunksSent,
     super.pcmChunksDropped,
     super.lastPcmChunkBytes,
+    super.audioLevel,
+    super.hasAudioLevel,
+    super.isAudioDetected,
   });
 }
 
@@ -97,6 +112,9 @@ class LiveStreaming extends LiveRecordingState {
     super.pcmChunksSent,
     super.pcmChunksDropped,
     super.lastPcmChunkBytes,
+    super.audioLevel,
+    super.hasAudioLevel,
+    super.isAudioDetected,
   });
 }
 
@@ -113,6 +131,9 @@ class LiveStopping extends LiveRecordingState {
     super.pcmChunksSent,
     super.pcmChunksDropped,
     super.lastPcmChunkBytes,
+    super.audioLevel,
+    super.hasAudioLevel,
+    super.isAudioDetected,
   });
 }
 
@@ -129,6 +150,9 @@ class LiveDone extends LiveRecordingState {
     super.pcmChunksSent,
     super.pcmChunksDropped,
     super.lastPcmChunkBytes,
+    super.audioLevel,
+    super.hasAudioLevel,
+    super.isAudioDetected,
     this.finalTranscript = '',
     this.usedGroqFallback = false,
   });
@@ -152,6 +176,9 @@ class LiveFailed extends LiveRecordingState {
     super.pcmChunksSent,
     super.pcmChunksDropped,
     super.lastPcmChunkBytes,
+    super.audioLevel,
+    super.hasAudioLevel,
+    super.isAudioDetected,
   });
 
   final String errorMessage;
