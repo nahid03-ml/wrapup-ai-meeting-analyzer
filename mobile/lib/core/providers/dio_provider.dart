@@ -6,7 +6,7 @@ import 'supabase_provider.dart';
 
 /// Dio HTTP client configured for the FastAPI backend.
 ///
-/// - Base URL = BACKEND_URL from .env.
+/// - Base URL = VITE_BACKEND_URL from .env, falling back to BACKEND_URL.
 /// - Auth interceptor: attaches `Authorization: Bearer <supabase_access_token>`
 ///   on every request, mirroring how the website calls the FastAPI backend
 ///   (see src/lib/session-processing.ts in the web repo).
