@@ -124,7 +124,7 @@ cloudflared tunnel route dns wrapup-backend api.your-domain.example
 # 5) write the config (replace <tunnel-uuid> with the value from step 3)
 cat > ~/.cloudflared/config.yml <<'EOF'
 tunnel: wrapup-backend
-credentials-file: /home/ubuntu/.cloudflared/<tunnel-uuid>.json
+credentials-file: /path/to/cloudflared/credentials.json
 ingress:
   - hostname: api.your-domain.example
     service: http://localhost:8000

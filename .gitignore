@@ -1,56 +1,111 @@
-# Logs
-logs
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-lerna-debug.log*
-
-# Frontend build
-node_modules
-dist
-dist-ssr
-dist-electron
-*.local
-
-# Editor directories and files
-.vscode/*
-!.vscode/extensions.json
-.idea
-.DS_Store
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.sw?
-.vercel
-
-# Python backend
-.venv
-__pycache__
-*.py[cod]
-*.pyo
-*.pyd
-.Python
-*.egg-info
-.eggs
-*.egg
-pip-wheel-metadata
-
-# Environment variables (NEVER commit these)
+# Environment variables and local secrets
 .env
 .env.*
 !.env.example
+!.env.sample
 
-# Python virtual environment
+# AI/Codex private notes and planning files
+AI.md
+ai.md
+**/AI.md
+**/ai.md
+.codex/
+codex-output*.md
+codex-summary*.md
+*.prompt.md
+private-notes.md
+
+# Node / frontend / Electron
+node_modules/
+dist/
+dist-electron/
+build/
+.next/
+out/
+coverage/
+.cache/
+.vite/
+
+# Python backend
+.venv/
 venv/
-ENV/
+env/
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
 
-# FAISS indexes (generated at runtime)
-backend/data/faiss/
-
-# macOS
+# OS files
 .DS_Store
-.AppleDouble
-.LSOverride
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Generated uploads and media
+uploads/
+recordings/
+audio/
+!mobile/lib/core/audio/
+!mobile/lib/core/audio/**
+video/
+temp/
+tmp/
+*.wav
+*.mp3
+*.mp4
+*.m4a
+*.webm
+*.flac
+
+# Local databases
+*.sqlite
+*.sqlite3
+*.db
+
+# Model artifacts
+models/
+!backend/models/
+!backend/models/**
+backend/models/__pycache__/
+backend/models/**/*.pyc
+checkpoints/
+*.pt
+*.pth
+*.onnx
+*.bin
+*.safetensors
+
+# Private keys and service credentials
+*.pem
+*.key
+*.p12
+*.crt
+service-account*.json
+google-credentials*.json
+
+# Additional project-local generated files
+dist-ssr/
+*.local
+.vercel/
+.idea/
+.vscode/*
+!.vscode/extensions.json
+.flutter-plugins
+.flutter-plugins-dependencies
+.dart_tool/
+mobile/build/
+mobile/.dart_tool/
+mobile/.idea/
+mobile/*.iml
+mobile/android/.gradle/
+mobile/android/local.properties
+mobile/android/*.iml
+mobile/ios/Flutter/Generated.xcconfig
+mobile/ios/Flutter/flutter_export_environment.sh
+mobile/ios/Flutter/ephemeral/
+mobile/ios/Runner/GeneratedPluginRegistrant.*
+mobile/devtools_options.yaml
+backend/data/

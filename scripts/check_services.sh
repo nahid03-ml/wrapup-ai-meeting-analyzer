@@ -12,7 +12,7 @@ set -u
 # ---------- locate .env ----------
 ENV_FILE="${1:-}"
 if [ -z "$ENV_FILE" ]; then
-  for candidate in "./.env" "/home/ubuntu/WrapUp-AI/.env" "$HOME/WrapUp-AI/.env"; do
+  for candidate in "./.env" "./backend/.env" "$HOME/WrapUp-AI/.env"; do
     if [ -f "$candidate" ]; then ENV_FILE="$candidate"; break; fi
   done
 fi
