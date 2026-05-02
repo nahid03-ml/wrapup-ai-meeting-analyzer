@@ -4,17 +4,6 @@
 !.env.example
 !.env.sample
 
-# AI/Codex private notes and planning files
-AI.md
-ai.md
-**/AI.md
-**/ai.md
-.codex/
-codex-output*.md
-codex-summary*.md
-*.prompt.md
-private-notes.md
-
 # Node / frontend / Electron
 node_modules/
 dist/
