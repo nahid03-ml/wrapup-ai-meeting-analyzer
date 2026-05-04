@@ -763,12 +763,12 @@ class _AdvancedDiagnosticsCard extends StatelessWidget {
                 value: state.isSendingAudioAfterResume ? 'yes' : 'no',
               ),
               _StatusRow(
-                label: 'Paused silence keepalive chunks',
-                value: '${state.pausedSilentKeepAliveChunksSent}',
+                label: 'Paused heartbeat messages',
+                value: '${state.pausedHeartbeatCount}',
               ),
               _StatusRow(
-                label: 'Last paused silence keepalive',
-                value: _formatDiagnosticTime(state.lastPausedSilentKeepAliveAt),
+                label: 'Last paused heartbeat',
+                value: _formatDiagnosticTime(state.lastPausedHeartbeatAt),
               ),
               _StatusRow(
                 label: 'Paused duration',
