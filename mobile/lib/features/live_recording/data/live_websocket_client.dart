@@ -31,8 +31,16 @@ class LiveWebSocketClient {
 
   String? get closeReason => _channel.closeReason;
 
+  bool get isClosed => closeCode != null;
+
   void sendStop() {
     _channel.sink.add(jsonEncode(LiveTranscriptionProtocol.stopControlMessage));
+  }
+
+  void sendPausedHeartbeat({required String sessionId}) {
+    _channel.sink.add(
+      encodeLivePausedHeartbeatControlMessage(sessionId: sessionId),
+    );
   }
 
   void sendBinary(Uint8List bytes) {
@@ -42,6 +50,20 @@ class LiveWebSocketClient {
   Future<void> close() async {
     await _channel.sink.close(ws_status.normalClosure);
   }
+}
+
+Map<String, String> livePausedHeartbeatControlMessage({
+  required String sessionId,
+}) {
+  return <String, String>{
+    'type': 'heartbeat',
+    'state': 'paused',
+    'session_id': sessionId,
+  };
+}
+
+String encodeLivePausedHeartbeatControlMessage({required String sessionId}) {
+  return jsonEncode(livePausedHeartbeatControlMessage(sessionId: sessionId));
 }
 
 LiveBackendEvent parseLiveBackendSocketMessage(dynamic message) {

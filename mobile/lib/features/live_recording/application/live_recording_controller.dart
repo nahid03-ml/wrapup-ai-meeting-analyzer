@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:developer' as developer;
 import 'dart:io';
 
 import 'package:flutter/services.dart';
@@ -15,7 +16,6 @@ import '../data/android_live_capture_platform.dart';
 import '../data/live_capture_event.dart';
 import '../data/live_capture_config.dart';
 import '../data/live_event.dart';
-import '../data/live_pcm_silence.dart';
 import '../data/live_session_repository.dart';
 import '../data/live_websocket_client.dart';
 import '../data/live_websocket_url_builder.dart';
@@ -30,8 +30,7 @@ const _longPauseWarningDuration = Duration(minutes: 5);
 const _longPauseNotice = 'Capture is paused. Resume when you are ready.';
 const _longPauseWarning =
     'Long pauses may affect the live connection. Resume or stop when ready.';
-const _pausedSilenceKeepAliveInterval = Duration(seconds: 4);
-final Uint8List _pausedSilenceKeepAliveFrame = buildLivePcm16SilenceFrame();
+const _pausedHeartbeatInterval = Duration(seconds: 4);
 
 class LiveRecordingController extends Notifier<LiveRecordingState>
     with WidgetsBindingObserver {
@@ -42,7 +41,8 @@ class LiveRecordingController extends Notifier<LiveRecordingState>
   StreamSubscription? _captureStatusSubscription;
   Completer<LiveDoneEvent>? _doneCompleter;
   Completer<void>? _stopCompleter;
-  Timer? _pausedSilenceKeepAliveTimer;
+  Completer<void>? _resumeCompleter;
+  Timer? _pausedHeartbeatTimer;
 
   String? _meetingId;
   String? _sessionId;
@@ -86,11 +86,23 @@ class LiveRecordingController extends Notifier<LiveRecordingState>
   DateTime? _lastPcmSentAfterResumeAt;
   DateTime? _lastTranscriptAfterResumeAt;
   bool _isSendingAudioAfterResume = false;
-  int _pausedSilentKeepAliveChunksSent = 0;
-  DateTime? _lastPausedSilentKeepAliveAt;
+  int _pausedHeartbeatCount = 0;
+  DateTime? _lastPausedHeartbeatAt;
 
   AndroidLiveCapturePlatform get _androidCapturePlatform {
     return _capturePlatform ??= AndroidLiveCapturePlatform();
+  }
+
+  void _logLive(
+    String tag,
+    String message, [
+    Map<String, Object?> data = const {},
+  ]) {
+    final fields = data.entries
+        .where((entry) => entry.value != null)
+        .map((entry) => '${entry.key}=${entry.value}')
+        .join(' ');
+    developer.log(fields.isEmpty ? message : '$message $fields', name: tag);
   }
 
   @override
@@ -386,34 +398,199 @@ class LiveRecordingController extends Notifier<LiveRecordingState>
     if (state is! LiveStreaming) {
       return;
     }
+    final pausedAt = DateTime.now();
     _isPaused = true;
-    _pauseStartedAt ??= DateTime.now();
-    _startPausedSilenceKeepAlive();
+    _pauseStartedAt ??= pausedAt;
+    _logLive('LIVE_PAUSE', 'pause requested', {
+      'pausedAt': pausedAt.toIso8601String(),
+      'webSocketStatus': _webSocketStatus,
+      'heartbeatIntervalSeconds': _pausedHeartbeatInterval.inSeconds,
+    });
+    _logLive('LIVE_WS', 'current websocket state at pause', {
+      'webSocketStatus': _webSocketStatus,
+      'isClosed': _client?.isClosed ?? true,
+    });
+    _startPausedHeartbeat();
     state = _pausedState();
   }
 
   void resume() {
+    if (_resumeCompleter != null) {
+      _logLive('LIVE_RESUME', 'duplicate resume prevented', {
+        'webSocketStatus': _webSocketStatus,
+      });
+      return;
+    }
     if (!_isPaused && state is! LivePaused) {
       return;
     }
     if (_meetingId == null || _sessionId == null || _languageCode == null) {
       return;
     }
-    _stopPausedSilenceKeepAlive();
-    _finalizePauseDuration();
-    _isPaused = false;
+    unawaited(_resume());
+  }
+
+  Future<void> _resume() async {
+    final resumeCompleter = Completer<void>();
+    _resumeCompleter = resumeCompleter;
+    final resumedAt = DateTime.now();
+    final pausedDuration = _currentPausedDuration(resumedAt);
+    _stopPausedHeartbeat();
+    _finalizePauseDuration(resumedAt);
     _resumeCount += 1;
-    _lastResumeAt = DateTime.now();
+    _lastResumeAt = resumedAt;
     _pcmChunksSentAfterResume = 0;
     _lastPcmSentAfterResumeAt = null;
     _lastTranscriptAfterResumeAt = null;
     _isSendingAudioAfterResume = false;
     state = _resumingState();
-    scheduleMicrotask(() {
+
+    try {
+      _logLive('LIVE_RESUME', 'resume requested', {
+        'resumedAt': resumedAt.toIso8601String(),
+        'pausedDurationSeconds': pausedDuration.inSeconds,
+        'webSocketStatusBeforeResume': _webSocketStatus,
+      });
+      _logLive('LIVE_WS', 'websocket state before resume', {
+        'webSocketStatus': _webSocketStatus,
+        'isClosed': _client?.isClosed ?? true,
+      });
+      final reconnected = await _ensureWebSocketReadyForResume();
+      final nativeRunning = await _isNativeCaptureRunningForResume();
+      if (!nativeRunning) {
+        await _reinitializeNativeCaptureForResume();
+      } else {
+        _logLive(
+          'LIVE_NATIVE_CAPTURE',
+          'duplicate native service prevented on resume',
+        );
+      }
+      _isPaused = false;
+      _webSocketStatus = 'streaming';
+      _captureStatus = 'streaming';
+      _logLive('LIVE_RESUME', 'resume ready', {
+        'webSocketReconnected': reconnected,
+        'nativeCaptureReinitialized': !nativeRunning,
+      });
       if (state is LiveResuming) {
         state = _streamingState();
       }
+    } catch (error) {
+      _logLive('LIVE_RESUME', 'resume failed', {
+        'errorType': error.runtimeType.toString(),
+      });
+      await _failAfterCleanup(
+        'Could not resume transcription. Please stop and start a new capture.',
+        error,
+        webSocketStatus: 'failed',
+      );
+      if (!resumeCompleter.isCompleted) {
+        resumeCompleter.complete();
+      }
+      if (identical(_resumeCompleter, resumeCompleter)) {
+        _resumeCompleter = null;
+      }
+      return;
+    }
+
+    if (!resumeCompleter.isCompleted) {
+      resumeCompleter.complete();
+    }
+    if (identical(_resumeCompleter, resumeCompleter)) {
+      _resumeCompleter = null;
+    }
+  }
+
+  Future<bool> _ensureWebSocketReadyForResume() async {
+    final client = _client;
+    final needsReconnect =
+        client == null ||
+        client.isClosed ||
+        _webSocketStatus == 'closed' ||
+        _webSocketStatus == 'failed';
+
+    if (!needsReconnect) {
+      _logLive('LIVE_WS', 'duplicate websocket prevented on resume', {
+        'webSocketStatus': _webSocketStatus,
+      });
+      return false;
+    }
+
+    _logLive('LIVE_WS', 'reconnecting websocket for resume', {
+      'previousWebSocketStatus': _webSocketStatus,
     });
+    await _closeClient();
+
+    final sessionId = _sessionId;
+    final languageCode = _languageCode;
+    if (sessionId == null || languageCode == null) {
+      throw StateError('Live session is incomplete.');
+    }
+
+    final openSession = ref.read(currentSessionProvider);
+    final accessToken = openSession?.accessToken;
+    if (accessToken == null || accessToken.isEmpty) {
+      throw StateError('Authentication session missing. Please log in again.');
+    }
+
+    final webSocketUri = buildLiveTranscriptionWebSocketUri(
+      backendBaseUrl: Env.backendUrl,
+      sessionId: sessionId,
+      languageCode: languageCode,
+      accessToken: accessToken,
+    );
+    final nextClient = await LiveWebSocketClient.connect(webSocketUri);
+    _client = nextClient;
+    _eventSubscription = nextClient.events.listen(
+      _handleEvent,
+      onError: _handleWebSocketError,
+      onDone: _handleWebSocketDone,
+    );
+    _webSocketStatus = 'connected';
+    _logLive('LIVE_WS', 'websocket reconnected for resume');
+    return true;
+  }
+
+  Future<bool> _isNativeCaptureRunningForResume() async {
+    if (!Platform.isAndroid) {
+      return true;
+    }
+    try {
+      final running = await _androidCapturePlatform.isCaptureRunning();
+      _logLive('LIVE_NATIVE_CAPTURE', 'native capture state before resume', {
+        'running': running,
+      });
+      return running;
+    } catch (error) {
+      _logLive('LIVE_NATIVE_CAPTURE', 'native capture state check failed', {
+        'errorType': error.runtimeType.toString(),
+      });
+      return true;
+    }
+  }
+
+  Future<void> _reinitializeNativeCaptureForResume() async {
+    if (!Platform.isAndroid) {
+      return;
+    }
+    _logLive('LIVE_NATIVE_CAPTURE', 'reinitializing native capture for resume');
+    _captureStatus = 'requesting permissions';
+    state = _resumingState();
+    await _prepareAndroidMixedCapture();
+    await _subscribeToMixedPcm();
+    _captureStatus = 'starting';
+    state = _resumingState();
+    await _androidCapturePlatform.startCapture(
+      const LiveCaptureConfig(
+        captureSystemAudio: true,
+        captureMicrophone: true,
+        enableEchoCanceler: true,
+        enableNoiseSuppressor: true,
+        enableAutomaticGainControl: true,
+        enableMicDucking: true,
+      ),
+    );
+    _logLive('LIVE_NATIVE_CAPTURE', 'native capture reinitialized for resume');
   }
 
   Future<void> discard() async {
@@ -436,6 +613,12 @@ class LiveRecordingController extends Notifier<LiveRecordingState>
     _lastBackendEventAt = now;
     switch (event) {
       case LiveTranscriptEvent():
+        if (_isPaused || state is LivePaused) {
+          _logLive('LIVE_PAUSE', 'transcript event ignored while paused', {
+            'isFinal': event.isFinal,
+          });
+          return;
+        }
         _lastTranscriptEventAt = now;
         if (_lastResumeAt != null && !now.isBefore(_lastResumeAt!)) {
           _lastTranscriptAfterResumeAt = now;
@@ -508,6 +691,16 @@ class LiveRecordingController extends Notifier<LiveRecordingState>
       return;
     }
     final failedWhilePaused = state is LivePaused || _isPaused;
+    if (failedWhilePaused) {
+      _webSocketStatus = 'closed';
+      _stopPausedHeartbeat();
+      _logLive('LIVE_WS', 'websocket error while paused', {
+        'pausedDurationSeconds': _currentPausedDuration().inSeconds,
+        'errorType': error.runtimeType.toString(),
+      });
+      _publishActiveState();
+      return;
+    }
     unawaited(
       _failAfterCleanup(
         _connectionLostMessage(failedWhilePaused: failedWhilePaused),
@@ -526,6 +719,15 @@ class LiveRecordingController extends Notifier<LiveRecordingState>
       return;
     }
     final failedWhilePaused = current is LivePaused || _isPaused;
+    if (failedWhilePaused) {
+      _webSocketStatus = 'closed';
+      _stopPausedHeartbeat();
+      _logLive('LIVE_WS', 'websocket closed while paused', {
+        'pausedDurationSeconds': _currentPausedDuration().inSeconds,
+      });
+      _publishActiveState();
+      return;
+    }
     final message = _connectionLostMessage(
       failedWhilePaused: failedWhilePaused,
     );
@@ -641,6 +843,7 @@ class LiveRecordingController extends Notifier<LiveRecordingState>
 
     final canSend =
         client != null &&
+        !client.isClosed &&
         state is! LiveStopping &&
         state is! LiveDone &&
         state is! LiveFailed;
@@ -648,10 +851,19 @@ class LiveRecordingController extends Notifier<LiveRecordingState>
       _pcmChunksDropped += 1;
       _lastPcmChunkBytes = bytes.length;
       _publishPcmMetrics();
+      if (client == null || client.isClosed) {
+        _logLive(
+          'LIVE_AUDIO_CHUNK',
+          'real audio chunk blocked by closed websocket',
+          {'webSocketStatus': _webSocketStatus},
+        );
+      }
       return;
     }
 
     try {
+      final isFirstRealChunkAfterResume =
+          _lastResumeAt != null && _pcmChunksSentAfterResume == 0;
       client.sendBinary(bytes);
       _pcmChunksSent += 1;
       _lastPcmChunkBytes = bytes.length;
@@ -661,9 +873,19 @@ class LiveRecordingController extends Notifier<LiveRecordingState>
         _pcmChunksSentAfterResume += 1;
         _lastPcmSentAfterResumeAt = now;
         _isSendingAudioAfterResume = true;
+        if (isFirstRealChunkAfterResume) {
+          _logLive(
+            'LIVE_AUDIO_CHUNK',
+            'first real audio chunk after resume sent',
+            {'sentAt': now.toIso8601String(), 'bytes': bytes.length},
+          );
+        }
       }
     } catch (error) {
       _pcmChunksDropped += 1;
+      _logLive('LIVE_AUDIO_CHUNK', 'real audio chunk send failed', {
+        'errorType': error.runtimeType.toString(),
+      });
       _warnings = List.unmodifiable(<String>[
         ..._warnings,
         'PCM chunk dropped because WebSocket was not ready.',
@@ -778,6 +1000,15 @@ class LiveRecordingController extends Notifier<LiveRecordingState>
       return;
     }
 
+    if (state is LivePaused || _isPaused) {
+      _captureStatus = 'stopped';
+      _logLive('LIVE_NATIVE_CAPTURE', 'native capture stopped while paused', {
+        'pausedDurationSeconds': _currentPausedDuration().inSeconds,
+      });
+      _publishActiveState();
+      return;
+    }
+
     final reason = event.message?.trim().isNotEmpty == true
         ? event.message!.trim()
         : event.code?.trim();
@@ -820,7 +1051,7 @@ class LiveRecordingController extends Notifier<LiveRecordingState>
     if (_captureStartedAt == null) {
       return;
     }
-    _stopPausedSilenceKeepAlive();
+    _stopPausedHeartbeat();
     final now = DateTime.now();
     _finalizePauseDuration(now);
     _captureStoppedAt ??= now;
@@ -882,21 +1113,27 @@ class LiveRecordingController extends Notifier<LiveRecordingState>
     _durationTimer = null;
   }
 
-  void _startPausedSilenceKeepAlive() {
-    _pausedSilenceKeepAliveTimer?.cancel();
-    _sendPausedSilenceKeepAlive();
-    _pausedSilenceKeepAliveTimer = Timer.periodic(
-      _pausedSilenceKeepAliveInterval,
-      (_) => _sendPausedSilenceKeepAlive(),
+  void _startPausedHeartbeat() {
+    if (_pausedHeartbeatTimer != null) {
+      _logLive('LIVE_HEARTBEAT', 'duplicate heartbeat loop prevented');
+      return;
+    }
+    _logLive('LIVE_HEARTBEAT', 'paused heartbeat loop started', {
+      'intervalSeconds': _pausedHeartbeatInterval.inSeconds,
+    });
+    _sendPausedHeartbeat();
+    _pausedHeartbeatTimer = Timer.periodic(
+      _pausedHeartbeatInterval,
+      (_) => _sendPausedHeartbeat(),
     );
   }
 
-  void _stopPausedSilenceKeepAlive() {
-    _pausedSilenceKeepAliveTimer?.cancel();
-    _pausedSilenceKeepAliveTimer = null;
+  void _stopPausedHeartbeat() {
+    _pausedHeartbeatTimer?.cancel();
+    _pausedHeartbeatTimer = null;
   }
 
-  void _sendPausedSilenceKeepAlive() {
+  void _sendPausedHeartbeat() {
     if (!_isPaused && state is! LivePaused) {
       return;
     }
@@ -904,23 +1141,36 @@ class LiveRecordingController extends Notifier<LiveRecordingState>
       return;
     }
     final client = _client;
-    if (client == null) {
+    final sessionId = _sessionId;
+    if (client == null || sessionId == null || client.isClosed) {
+      _webSocketStatus = 'closed';
+      _logLive(
+        'LIVE_HEARTBEAT',
+        'paused heartbeat skipped because websocket is closed',
+        {'webSocketStatus': _webSocketStatus},
+      );
+      _stopPausedHeartbeat();
+      _publishActiveState();
       return;
     }
 
     try {
-      client.sendBinary(_pausedSilenceKeepAliveFrame);
-      _pausedSilentKeepAliveChunksSent += 1;
-      _lastPausedSilentKeepAliveAt = DateTime.now();
+      client.sendPausedHeartbeat(sessionId: sessionId);
+      final now = DateTime.now();
+      _pausedHeartbeatCount += 1;
+      _lastPausedHeartbeatAt = now;
+      _logLive('LIVE_HEARTBEAT', 'paused heartbeat sent', {
+        'sentAt': now.toIso8601String(),
+        'count': _pausedHeartbeatCount,
+      });
       _publishActiveState();
     } catch (error) {
-      unawaited(
-        _failAfterCleanup(
-          _connectionLostMessage(failedWhilePaused: true),
-          error,
-          webSocketStatus: 'failed',
-        ),
-      );
+      _webSocketStatus = 'closed';
+      _stopPausedHeartbeat();
+      _logLive('LIVE_HEARTBEAT', 'paused heartbeat send failed', {
+        'errorType': error.runtimeType.toString(),
+      });
+      _publishActiveState();
     }
   }
 
@@ -975,6 +1225,7 @@ class LiveRecordingController extends Notifier<LiveRecordingState>
       audioLevel: _audioLevel,
       hasAudioLevel: _hasAudioLevel,
       isAudioDetected: _isAudioDetected,
+      isPaused: _isPaused,
       pcmChunksSkippedWhilePaused: _pcmChunksSkippedWhilePaused,
       captureStartedAt: _captureStartedAt,
       captureStoppedAt: _captureStoppedAt,
@@ -993,8 +1244,8 @@ class LiveRecordingController extends Notifier<LiveRecordingState>
       lastPcmSentAfterResumeAt: _lastPcmSentAfterResumeAt,
       lastTranscriptAfterResumeAt: _lastTranscriptAfterResumeAt,
       isSendingAudioAfterResume: _isSendingAudioAfterResume,
-      pausedSilentKeepAliveChunksSent: _pausedSilentKeepAliveChunksSent,
-      lastPausedSilentKeepAliveAt: _lastPausedSilentKeepAliveAt,
+      pausedHeartbeatCount: _pausedHeartbeatCount,
+      lastPausedHeartbeatAt: _lastPausedHeartbeatAt,
     );
   }
 
@@ -1032,8 +1283,8 @@ class LiveRecordingController extends Notifier<LiveRecordingState>
       lastPcmSentAfterResumeAt: _lastPcmSentAfterResumeAt,
       lastTranscriptAfterResumeAt: _lastTranscriptAfterResumeAt,
       isSendingAudioAfterResume: _isSendingAudioAfterResume,
-      pausedSilentKeepAliveChunksSent: _pausedSilentKeepAliveChunksSent,
-      lastPausedSilentKeepAliveAt: _lastPausedSilentKeepAliveAt,
+      pausedHeartbeatCount: _pausedHeartbeatCount,
+      lastPausedHeartbeatAt: _lastPausedHeartbeatAt,
     );
   }
 
@@ -1071,8 +1322,8 @@ class LiveRecordingController extends Notifier<LiveRecordingState>
       lastPcmSentAfterResumeAt: _lastPcmSentAfterResumeAt,
       lastTranscriptAfterResumeAt: _lastTranscriptAfterResumeAt,
       isSendingAudioAfterResume: _isSendingAudioAfterResume,
-      pausedSilentKeepAliveChunksSent: _pausedSilentKeepAliveChunksSent,
-      lastPausedSilentKeepAliveAt: _lastPausedSilentKeepAliveAt,
+      pausedHeartbeatCount: _pausedHeartbeatCount,
+      lastPausedHeartbeatAt: _lastPausedHeartbeatAt,
     );
   }
 
@@ -1111,8 +1362,8 @@ class LiveRecordingController extends Notifier<LiveRecordingState>
       lastPcmSentAfterResumeAt: _lastPcmSentAfterResumeAt,
       lastTranscriptAfterResumeAt: _lastTranscriptAfterResumeAt,
       isSendingAudioAfterResume: _isSendingAudioAfterResume,
-      pausedSilentKeepAliveChunksSent: _pausedSilentKeepAliveChunksSent,
-      lastPausedSilentKeepAliveAt: _lastPausedSilentKeepAliveAt,
+      pausedHeartbeatCount: _pausedHeartbeatCount,
+      lastPausedHeartbeatAt: _lastPausedHeartbeatAt,
     );
   }
 
@@ -1150,8 +1401,8 @@ class LiveRecordingController extends Notifier<LiveRecordingState>
       lastPcmSentAfterResumeAt: _lastPcmSentAfterResumeAt,
       lastTranscriptAfterResumeAt: _lastTranscriptAfterResumeAt,
       isSendingAudioAfterResume: _isSendingAudioAfterResume,
-      pausedSilentKeepAliveChunksSent: _pausedSilentKeepAliveChunksSent,
-      lastPausedSilentKeepAliveAt: _lastPausedSilentKeepAliveAt,
+      pausedHeartbeatCount: _pausedHeartbeatCount,
+      lastPausedHeartbeatAt: _lastPausedHeartbeatAt,
     );
   }
 
@@ -1171,6 +1422,7 @@ class LiveRecordingController extends Notifier<LiveRecordingState>
       audioLevel: _audioLevel,
       hasAudioLevel: _hasAudioLevel,
       isAudioDetected: _isAudioDetected,
+      isPaused: _isPaused,
       pcmChunksSkippedWhilePaused: _pcmChunksSkippedWhilePaused,
       captureStartedAt: _captureStartedAt,
       captureStoppedAt: _captureStoppedAt,
@@ -1189,8 +1441,8 @@ class LiveRecordingController extends Notifier<LiveRecordingState>
       lastPcmSentAfterResumeAt: _lastPcmSentAfterResumeAt,
       lastTranscriptAfterResumeAt: _lastTranscriptAfterResumeAt,
       isSendingAudioAfterResume: _isSendingAudioAfterResume,
-      pausedSilentKeepAliveChunksSent: _pausedSilentKeepAliveChunksSent,
-      lastPausedSilentKeepAliveAt: _lastPausedSilentKeepAliveAt,
+      pausedHeartbeatCount: _pausedHeartbeatCount,
+      lastPausedHeartbeatAt: _lastPausedHeartbeatAt,
     );
   }
 
@@ -1229,8 +1481,8 @@ class LiveRecordingController extends Notifier<LiveRecordingState>
       lastPcmSentAfterResumeAt: _lastPcmSentAfterResumeAt,
       lastTranscriptAfterResumeAt: _lastTranscriptAfterResumeAt,
       isSendingAudioAfterResume: _isSendingAudioAfterResume,
-      pausedSilentKeepAliveChunksSent: _pausedSilentKeepAliveChunksSent,
-      lastPausedSilentKeepAliveAt: _lastPausedSilentKeepAliveAt,
+      pausedHeartbeatCount: _pausedHeartbeatCount,
+      lastPausedHeartbeatAt: _lastPausedHeartbeatAt,
     );
   }
 
@@ -1269,8 +1521,8 @@ class LiveRecordingController extends Notifier<LiveRecordingState>
       lastPcmSentAfterResumeAt: _lastPcmSentAfterResumeAt,
       lastTranscriptAfterResumeAt: _lastTranscriptAfterResumeAt,
       isSendingAudioAfterResume: _isSendingAudioAfterResume,
-      pausedSilentKeepAliveChunksSent: _pausedSilentKeepAliveChunksSent,
-      lastPausedSilentKeepAliveAt: _lastPausedSilentKeepAliveAt,
+      pausedHeartbeatCount: _pausedHeartbeatCount,
+      lastPausedHeartbeatAt: _lastPausedHeartbeatAt,
       finalTranscript: doneEvent?.transcript ?? '',
       usedGroqFallback: doneEvent?.usedGroqFallback ?? false,
     );
@@ -1343,8 +1595,8 @@ class LiveRecordingController extends Notifier<LiveRecordingState>
       lastPcmSentAfterResumeAt: _lastPcmSentAfterResumeAt,
       lastTranscriptAfterResumeAt: _lastTranscriptAfterResumeAt,
       isSendingAudioAfterResume: _isSendingAudioAfterResume,
-      pausedSilentKeepAliveChunksSent: _pausedSilentKeepAliveChunksSent,
-      lastPausedSilentKeepAliveAt: _lastPausedSilentKeepAliveAt,
+      pausedHeartbeatCount: _pausedHeartbeatCount,
+      lastPausedHeartbeatAt: _lastPausedHeartbeatAt,
     );
   }
 
@@ -1396,7 +1648,7 @@ class LiveRecordingController extends Notifier<LiveRecordingState>
 
   Future<void> _dispose() async {
     _stopDurationTimer();
-    _stopPausedSilenceKeepAlive();
+    _stopPausedHeartbeat();
     await _stopAndroidCapture();
     await _closeClient();
     try {
@@ -1408,7 +1660,7 @@ class LiveRecordingController extends Notifier<LiveRecordingState>
 
   void _clearRuntime() {
     _stopDurationTimer();
-    _stopPausedSilenceKeepAlive();
+    _stopPausedHeartbeat();
     _meetingId = null;
     _sessionId = null;
     _languageCode = null;
@@ -1417,6 +1669,7 @@ class LiveRecordingController extends Notifier<LiveRecordingState>
     _warnings = const <String>[];
     _doneCompleter = null;
     _stopCompleter = null;
+    _resumeCompleter = null;
     _webSocketStatus = 'idle';
     _captureStatus = 'idle';
     _pcmChunksSent = 0;
@@ -1451,8 +1704,8 @@ class LiveRecordingController extends Notifier<LiveRecordingState>
     _lastPcmSentAfterResumeAt = null;
     _lastTranscriptAfterResumeAt = null;
     _isSendingAudioAfterResume = false;
-    _pausedSilentKeepAliveChunksSent = 0;
-    _lastPausedSilentKeepAliveAt = null;
+    _pausedHeartbeatCount = 0;
+    _lastPausedHeartbeatAt = null;
   }
 
   void _invalidateLiveData() {

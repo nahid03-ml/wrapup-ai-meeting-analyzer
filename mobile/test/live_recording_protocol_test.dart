@@ -1,7 +1,9 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
+
 import 'package:mobile/features/live_recording/application/live_transcript_line.dart';
 import 'package:mobile/features/live_recording/data/live_event.dart';
-import 'package:mobile/features/live_recording/data/live_pcm_silence.dart';
 import 'package:mobile/features/live_recording/data/live_websocket_client.dart';
 import 'package:mobile/features/live_recording/data/live_websocket_url_builder.dart';
 
@@ -113,10 +115,17 @@ void main() {
     },
   );
 
-  test('paused silence keepalive frame is 100ms PCM16 mono silence', () {
-    final frame = buildLivePcm16SilenceFrame();
+  test('paused heartbeat control message is safe text JSON', () {
+    final encoded = encodeLivePausedHeartbeatControlMessage(
+      sessionId: 'session-123',
+    );
+    final decoded = jsonDecode(encoded) as Map<String, dynamic>;
 
-    expect(frame, hasLength(3200));
-    expect(frame.every((byte) => byte == 0), isTrue);
+    expect(decoded, {
+      'type': 'heartbeat',
+      'state': 'paused',
+      'session_id': 'session-123',
+    });
+    expect(encoded, isNot(contains('token')));
   });
 }

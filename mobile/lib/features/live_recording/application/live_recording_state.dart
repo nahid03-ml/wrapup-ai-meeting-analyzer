@@ -35,8 +35,8 @@ sealed class LiveRecordingState {
     this.lastPcmSentAfterResumeAt,
     this.lastTranscriptAfterResumeAt,
     this.isSendingAudioAfterResume = false,
-    this.pausedSilentKeepAliveChunksSent = 0,
-    this.lastPausedSilentKeepAliveAt,
+    this.pausedHeartbeatCount = 0,
+    this.lastPausedHeartbeatAt,
   });
 
   final String? meetingId;
@@ -72,8 +72,8 @@ sealed class LiveRecordingState {
   final DateTime? lastPcmSentAfterResumeAt;
   final DateTime? lastTranscriptAfterResumeAt;
   final bool isSendingAudioAfterResume;
-  final int pausedSilentKeepAliveChunksSent;
-  final DateTime? lastPausedSilentKeepAliveAt;
+  final int pausedHeartbeatCount;
+  final DateTime? lastPausedHeartbeatAt;
 }
 
 class LiveIdle extends LiveRecordingState {
@@ -100,8 +100,8 @@ class LiveCreatingSession extends LiveRecordingState {
     super.lastPcmSentAfterResumeAt,
     super.lastTranscriptAfterResumeAt,
     super.isSendingAudioAfterResume,
-    super.pausedSilentKeepAliveChunksSent,
-    super.lastPausedSilentKeepAliveAt,
+    super.pausedHeartbeatCount,
+    super.lastPausedHeartbeatAt,
   });
 }
 
@@ -121,7 +121,6 @@ class LiveConnecting extends LiveRecordingState {
     super.audioLevel,
     super.hasAudioLevel,
     super.isAudioDetected,
-    super.isPaused,
     super.pcmChunksSkippedWhilePaused,
     super.captureStartedAt,
     super.captureStoppedAt,
@@ -140,8 +139,8 @@ class LiveConnecting extends LiveRecordingState {
     super.lastPcmSentAfterResumeAt,
     super.lastTranscriptAfterResumeAt,
     super.isSendingAudioAfterResume,
-    super.pausedSilentKeepAliveChunksSent,
-    super.lastPausedSilentKeepAliveAt,
+    super.pausedHeartbeatCount,
+    super.lastPausedHeartbeatAt,
   });
 }
 
@@ -180,8 +179,8 @@ class LiveReadyNoCapture extends LiveRecordingState {
     super.lastPcmSentAfterResumeAt,
     super.lastTranscriptAfterResumeAt,
     super.isSendingAudioAfterResume,
-    super.pausedSilentKeepAliveChunksSent,
-    super.lastPausedSilentKeepAliveAt,
+    super.pausedHeartbeatCount,
+    super.lastPausedHeartbeatAt,
   });
 }
 
@@ -220,8 +219,8 @@ class LiveStartingCapture extends LiveRecordingState {
     super.lastPcmSentAfterResumeAt,
     super.lastTranscriptAfterResumeAt,
     super.isSendingAudioAfterResume,
-    super.pausedSilentKeepAliveChunksSent,
-    super.lastPausedSilentKeepAliveAt,
+    super.pausedHeartbeatCount,
+    super.lastPausedHeartbeatAt,
   });
 }
 
@@ -260,8 +259,8 @@ class LiveStreaming extends LiveRecordingState {
     super.lastPcmSentAfterResumeAt,
     super.lastTranscriptAfterResumeAt,
     super.isSendingAudioAfterResume,
-    super.pausedSilentKeepAliveChunksSent,
-    super.lastPausedSilentKeepAliveAt,
+    super.pausedHeartbeatCount,
+    super.lastPausedHeartbeatAt,
   });
 }
 
@@ -299,8 +298,8 @@ class LivePaused extends LiveRecordingState {
     super.lastPcmSentAfterResumeAt,
     super.lastTranscriptAfterResumeAt,
     super.isSendingAudioAfterResume,
-    super.pausedSilentKeepAliveChunksSent,
-    super.lastPausedSilentKeepAliveAt,
+    super.pausedHeartbeatCount,
+    super.lastPausedHeartbeatAt,
   }) : super(isPaused: true);
 }
 
@@ -320,6 +319,7 @@ class LiveResuming extends LiveRecordingState {
     super.audioLevel,
     super.hasAudioLevel,
     super.isAudioDetected,
+    super.isPaused,
     super.pcmChunksSkippedWhilePaused,
     super.captureStartedAt,
     super.captureStoppedAt,
@@ -338,8 +338,8 @@ class LiveResuming extends LiveRecordingState {
     super.lastPcmSentAfterResumeAt,
     super.lastTranscriptAfterResumeAt,
     super.isSendingAudioAfterResume,
-    super.pausedSilentKeepAliveChunksSent,
-    super.lastPausedSilentKeepAliveAt,
+    super.pausedHeartbeatCount,
+    super.lastPausedHeartbeatAt,
   });
 }
 
@@ -378,8 +378,8 @@ class LiveStopping extends LiveRecordingState {
     super.lastPcmSentAfterResumeAt,
     super.lastTranscriptAfterResumeAt,
     super.isSendingAudioAfterResume,
-    super.pausedSilentKeepAliveChunksSent,
-    super.lastPausedSilentKeepAliveAt,
+    super.pausedHeartbeatCount,
+    super.lastPausedHeartbeatAt,
   });
 }
 
@@ -418,8 +418,8 @@ class LiveDone extends LiveRecordingState {
     super.lastPcmSentAfterResumeAt,
     super.lastTranscriptAfterResumeAt,
     super.isSendingAudioAfterResume,
-    super.pausedSilentKeepAliveChunksSent,
-    super.lastPausedSilentKeepAliveAt,
+    super.pausedHeartbeatCount,
+    super.lastPausedHeartbeatAt,
     this.finalTranscript = '',
     this.usedGroqFallback = false,
   });
@@ -465,8 +465,8 @@ class LiveFailed extends LiveRecordingState {
     super.lastPcmSentAfterResumeAt,
     super.lastTranscriptAfterResumeAt,
     super.isSendingAudioAfterResume,
-    super.pausedSilentKeepAliveChunksSent,
-    super.lastPausedSilentKeepAliveAt,
+    super.pausedHeartbeatCount,
+    super.lastPausedHeartbeatAt,
   });
 
   final String errorMessage;

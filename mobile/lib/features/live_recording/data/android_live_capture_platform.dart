@@ -27,9 +27,9 @@ class AndroidLiveCapturePlatform {
   Stream<Uint8List>? _pcmFrames;
 
   Stream<LiveCaptureEvent> get statusEvents {
-    return _statusEvents ??= _statusEventChannel
-        .receiveBroadcastStream()
-        .map(_captureEventFromDynamic);
+    return _statusEvents ??= _statusEventChannel.receiveBroadcastStream().map(
+      _captureEventFromDynamic,
+    );
   }
 
   Stream<Uint8List> get pcmFrames {
@@ -91,6 +91,14 @@ class AndroidLiveCapturePlatform {
 
   Future<void> stopCapture() async {
     await _methodChannel.invokeMethod<void>('stopCapture');
+  }
+
+  Future<bool> isCaptureRunning() async {
+    if (defaultTargetPlatform != TargetPlatform.android) {
+      return false;
+    }
+    final running = await _methodChannel.invokeMethod<bool>('isCaptureRunning');
+    return running ?? false;
   }
 
   Future<void> dispose() async {

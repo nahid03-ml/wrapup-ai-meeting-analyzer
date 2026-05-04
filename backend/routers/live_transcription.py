@@ -186,26 +186,72 @@ async def live_transcription(websocket: WebSocket, session_id: str) -> None:
     use_deepgram = _is_deepgram_streaming_supported(lang)
 
     dg_ws: Any = None
-    if use_deepgram:
+    pump_task: asyncio.Task[Any] | None = None
+    waiting_for_resumed_audio = False
+
+    def _deepgram_close_fields(source: Any = None) -> dict[str, Any]:
+        close_code = getattr(source, "code", None)
+        if close_code is None:
+            close_code = getattr(source, "close_code", None)
+        close_reason = getattr(source, "reason", None)
+        if close_reason is None:
+            close_reason = getattr(source, "close_reason", None)
+        close_text = f"{close_code or ''} {close_reason or ''} {source or ''}"
+        return {
+            "close_code": close_code,
+            "close_reason": close_reason,
+            "net_0001": "NET-0001" in close_text,
+        }
+
+    def _deepgram_is_closed(ws: Any) -> bool:
+        if ws is None:
+            return True
+        closed = getattr(ws, "closed", None)
+        if isinstance(closed, bool):
+            return closed
+        if getattr(ws, "close_code", None) is not None:
+            return True
+        state = str(getattr(ws, "state", "")).upper()
+        return "CLOSED" in state or "CLOSING" in state
+
+    async def _connect_deepgram(reason: str) -> Any | None:
+        logger.info(
+            "LIVE_DEEPGRAM",
+            session_id=session_id,
+            event="connecting",
+            reason=reason,
+        )
         try:
-            dg_ws = await websockets.connect(  # type: ignore[attr-defined]
-                deepgram_url,
-                additional_headers=deepgram_headers,
-                open_timeout=10,
-                ping_interval=5,
-                ping_timeout=20,
-            )
-        except TypeError:
-            # Older websockets versions use `extra_headers` instead of `additional_headers`.
-            dg_ws = await websockets.connect(  # type: ignore[attr-defined]
-                deepgram_url,
-                extra_headers=deepgram_headers,
-                open_timeout=10,
-                ping_interval=5,
-                ping_timeout=20,
-            )
+            try:
+                return await websockets.connect(  # type: ignore[attr-defined]
+                    deepgram_url,
+                    additional_headers=deepgram_headers,
+                    open_timeout=10,
+                    ping_interval=5,
+                    ping_timeout=20,
+                )
+            except TypeError:
+                # Older websockets versions use `extra_headers` instead of `additional_headers`.
+                return await websockets.connect(  # type: ignore[attr-defined]
+                    deepgram_url,
+                    extra_headers=deepgram_headers,
+                    open_timeout=10,
+                    ping_interval=5,
+                    ping_timeout=20,
+                )
         except Exception as exc:
-            logger.warning("live_ws_deepgram_connect_failed", error=str(exc), session_id=session_id)
+            logger.warning(
+                "LIVE_DEEPGRAM",
+                session_id=session_id,
+                event="connect_failed",
+                reason=reason,
+                error=str(exc),
+            )
+            return None
+
+    if use_deepgram:
+        dg_ws = await _connect_deepgram(reason="initial")
+        if dg_ws is None:
             # Don't drop the client — degrade to spool-only and let Groq batch
             # take over on stop. This is the correct UX when Deepgram is the
             # one who's unhappy (rate limit, transient error, etc.).
@@ -233,12 +279,12 @@ async def live_transcription(websocket: WebSocket, session_id: str) -> None:
                 ),
             })
 
-    async def pump_deepgram_to_client() -> None:
+    async def pump_deepgram_to_client(ws: Any) -> None:
         nonlocal consecutive_empty_finals, deepgram_degraded
-        if dg_ws is None:
+        if ws is None:
             return
         try:
-            async for message in dg_ws:
+            async for message in ws:
                 try:
                     event = json.loads(message)
                 except json.JSONDecodeError:
@@ -309,12 +355,32 @@ async def live_transcription(websocket: WebSocket, session_id: str) -> None:
                         "is_final": is_final,
                         "confidence": confidence,
                     })
-        except websockets.ConnectionClosed:
-            pass
+        except websockets.ConnectionClosed as exc:
+            logger.warning(
+                "LIVE_DEEPGRAM",
+                session_id=session_id,
+                event="closed",
+                mobile_websocket="open",
+                **_deepgram_close_fields(exc),
+            )
         except Exception as exc:
-            logger.warning("live_ws_deepgram_pump_error", error=str(exc), session_id=session_id)
+            logger.warning(
+                "LIVE_DEEPGRAM",
+                session_id=session_id,
+                event="pump_error",
+                error=str(exc),
+            )
+        finally:
+            if _deepgram_is_closed(ws):
+                logger.info(
+                    "LIVE_DEEPGRAM",
+                    session_id=session_id,
+                    event="closed_state_observed",
+                    mobile_websocket="open",
+                    **_deepgram_close_fields(ws),
+                )
 
-    pump_task = asyncio.create_task(pump_deepgram_to_client()) if dg_ws is not None else None
+    pump_task = asyncio.create_task(pump_deepgram_to_client(dg_ws)) if dg_ws is not None else None
 
     # Spool writer runs in a thread pool to avoid blocking the event loop
     # on disk writes. Keep an open file handle for the session's lifetime.
@@ -324,24 +390,134 @@ async def live_transcription(websocket: WebSocket, session_id: str) -> None:
     def _write_spool(chunk: bytes) -> None:
         spool_file.write(chunk)
 
+    async def _ensure_deepgram_connected(reason: str) -> bool:
+        nonlocal dg_ws, pump_task, deepgram_degraded
+        if not use_deepgram:
+            return False
+        if dg_ws is not None and not _deepgram_is_closed(dg_ws):
+            return True
+
+        logger.warning(
+            "LIVE_DEEPGRAM",
+            session_id=session_id,
+            event="reconnecting after paused timeout",
+            reason=reason,
+            **_deepgram_close_fields(dg_ws),
+        )
+        if pump_task is not None and not pump_task.done():
+            pump_task.cancel()
+        dg_ws = await _connect_deepgram(reason=reason)
+        if dg_ws is None:
+            deepgram_degraded = True
+            return False
+        pump_task = asyncio.create_task(pump_deepgram_to_client(dg_ws))
+        return True
+
+    async def _forward_deepgram_keepalive() -> None:
+        nonlocal dg_ws
+        if not await _ensure_deepgram_connected(reason="paused_heartbeat"):
+            logger.info(
+                "LIVE_HEARTBEAT",
+                session_id=session_id,
+                state="paused",
+                deepgram="unavailable",
+            )
+            return
+        try:
+            await dg_ws.send(json.dumps({"type": "KeepAlive"}))
+            logger.info(
+                "LIVE_HEARTBEAT",
+                session_id=session_id,
+                state="paused",
+                deepgram="keepalive_sent",
+            )
+        except Exception as exc:
+            logger.warning(
+                "LIVE_HEARTBEAT",
+                error=str(exc),
+                session_id=session_id,
+                state="paused",
+                deepgram="keepalive_failed",
+            )
+            with contextlib.suppress(Exception):
+                await dg_ws.close()
+            dg_ws = None
+
+    async def _send_audio_to_deepgram(chunk: bytes, resumed_audio: bool) -> bool:
+        nonlocal dg_ws
+        if not await _ensure_deepgram_connected(
+            reason="resumed_audio" if resumed_audio else "audio_chunk",
+        ):
+            return False
+
+        try:
+            await dg_ws.send(chunk)
+            if resumed_audio:
+                logger.info(
+                    "LIVE_AUDIO_CHUNK",
+                    session_id=session_id,
+                    event="first resumed audio forwarded to Deepgram",
+                    bytes=len(chunk),
+                    after_reconnect=False,
+                )
+            return True
+        except Exception as exc:
+            logger.warning(
+                "LIVE_DEEPGRAM",
+                session_id=session_id,
+                event="audio_forward_failed",
+                resumed_audio=resumed_audio,
+                error=str(exc),
+                **_deepgram_close_fields(dg_ws),
+            )
+            with contextlib.suppress(Exception):
+                await dg_ws.close()
+            dg_ws = None
+
+        if not resumed_audio:
+            return False
+        if not await _ensure_deepgram_connected(reason="resumed_audio_retry"):
+            return False
+        try:
+            await dg_ws.send(chunk)
+            logger.info(
+                "LIVE_AUDIO_CHUNK",
+                session_id=session_id,
+                event="first resumed audio forwarded to Deepgram",
+                bytes=len(chunk),
+                after_reconnect=True,
+            )
+            return True
+        except Exception as exc:
+            logger.warning(
+                "LIVE_DEEPGRAM",
+                session_id=session_id,
+                event="resumed_audio_retry_failed",
+                error=str(exc),
+                **_deepgram_close_fields(dg_ws),
+            )
+            return False
+
     try:
         while True:
             message = await websocket.receive()
             if message.get("type") == "websocket.disconnect":
+                logger.info("LIVE_WS", session_id=session_id, event="mobile_websocket_disconnect")
                 break
             if "bytes" in message and message["bytes"] is not None:
                 chunk: bytes = message["bytes"]
                 if chunk:
+                    resumed_audio = waiting_for_resumed_audio
+                    if resumed_audio:
+                        logger.info(
+                            "LIVE_AUDIO_CHUNK",
+                            session_id=session_id,
+                            event="first resumed audio received from mobile",
+                            bytes=len(chunk),
+                        )
                     await loop.run_in_executor(None, _write_spool, chunk)
-                    if dg_ws is not None:
-                        try:
-                            await dg_ws.send(chunk)
-                        except Exception as exc:
-                            logger.warning(
-                                "live_ws_deepgram_send_error",
-                                error=str(exc),
-                                session_id=session_id,
-                            )
+                    if await _send_audio_to_deepgram(chunk, resumed_audio=resumed_audio):
+                        waiting_for_resumed_audio = False
             elif "text" in message and message["text"]:
                 try:
                     control = json.loads(message["text"])
@@ -350,6 +526,17 @@ async def live_transcription(websocket: WebSocket, session_id: str) -> None:
                 if control.get("type") == "stop":
                     stop_requested = True
                     break
+                if control.get("type") == "heartbeat":
+                    if control.get("state") == "paused":
+                        waiting_for_resumed_audio = True
+                        logger.info(
+                            "LIVE_HEARTBEAT",
+                            session_id=session_id,
+                            event="mobile heartbeat received",
+                            state="paused",
+                        )
+                        await _forward_deepgram_keepalive()
+                    continue
     except WebSocketDisconnect:
         pass
     except Exception as exc:

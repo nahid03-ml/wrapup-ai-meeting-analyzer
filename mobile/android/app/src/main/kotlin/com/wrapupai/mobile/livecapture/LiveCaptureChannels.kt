@@ -115,6 +115,7 @@ class LiveCaptureChannels(
             "requestProjection" -> requestProjection(result)
             "startCapture" -> startCapture(call.arguments, result)
             "stopCapture" -> stopCapture(result)
+            "isCaptureRunning" -> result.success(LiveCaptureService.isRunning())
             "dispose" -> {
                 LiveCaptureService.stop(activity)
                 disposeCaptureState()
